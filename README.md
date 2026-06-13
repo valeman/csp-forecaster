@@ -79,27 +79,20 @@ sf.forecast(df=df, h=24, level=[95])  # columns: CSP, CSP-lo-95, CSP-hi-95
 `level=L` maps to `alpha = 1 - L/100`; `lo-L`/`hi-L` are the empirical quantiles of
 the CSP samples; `mean` is the per-horizon sample mean.
 
-## Verification (all runnable with NumPy only)
+## Tests
 
 ```bash
-# 1. Unit tests: legacy == original (bit-exact), fast ≈ legacy (CRPS/coverage), reproducibility
-PYTHONPATH=src:csp_forecaster/src python -m pytest csp_forecaster/tests -q
-
-# 2. Retest on the paper's six datasets vs the audited per-window results
-PYTHONPATH=src:csp_forecaster/src python scripts/verify_csp_on_paper_datasets.py --mode legacy
-PYTHONPATH=src:csp_forecaster/src python scripts/verify_csp_on_paper_datasets.py --mode fast
+pip install -e ".[test]"
+pytest -q
 ```
 
-### Results on the paper's six datasets (380 windows each)
+The suite (NumPy only) covers:
 
-Run against the cached input windows (`results_local/window_cache/`) and compared
-to the CSP rows of `results_paper/audited_per_window_t1.csv`:
+- **Fast vs legacy equivalence** — the two modes agree on CRPS and empirical coverage to within Monte-Carlo tolerance.
+- **Legacy reproducibility** — a fixed global seed yields identical samples.
+- **statsforecast adapter** — `CSPModel` returns the expected `mean` / `lo-L` / `hi-L` outputs and runs inside `StatsForecast` (when it is installed).
 
-- **Legacy:** bit-exact with `src/cp_bench/methods.py::ConformalSeasonalPool` under the same global seed (proven across `adaptive`×`m`×`H` configs).
-- **Both modes reproduce the audited results:** per-dataset coverage within 0.04 and mean CRPS within ~1.3% for CSP-Adaptive and CSP-Fixed. Remaining gaps are the expected RNG-sequence difference vs the audited run, not implementation error.
-- **Fast vs legacy on real data:** CRPS within 0.01%, coverage within 0.0006.
+## Citation
 
-## Provenance
-
-Extracted verbatim (legacy path) from `src/cp_bench/methods.py::ConformalSeasonalPool`.
-See `../RESULTS_PROVENANCE.md` and `../PROJECT_MAP.md` for how this fits the wider project.
+CSP is introduced in *Training-Free Probabilistic Time-Series Forecasting with
+Conformal Seasonal Pools* (V. Manokhin). If you use this package, please cite the paper.
