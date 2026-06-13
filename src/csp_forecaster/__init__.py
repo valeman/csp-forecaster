@@ -1,7 +1,4 @@
-"""csp_forecaster -- training-free Conformal Seasonal Pools forecaster.
-
-Packaged from the paper code (src/cp_bench/methods.py::ConformalSeasonalPool).
-"""
+"""csp_forecaster -- training-free Conformal Seasonal Pools (CSP) forecaster."""
 
 from .core import (
     ConformalSeasonalPool,
@@ -16,4 +13,4 @@ __all__ = [
     "DEFAULT_QUANTILE_LEVELS",
     "CSPModel",
 ]
-__version__ = "0.1.0"
+__version__ = "0.1.1"
