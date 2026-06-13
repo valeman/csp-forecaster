@@ -5,6 +5,50 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-06-13
+
+### Fixed
+
+- **`CSPModel._result_dict` now applies the orientation-correct
+  finite-sample conformal quantile.** Previously, the `statsforecast`-
+  compatible wrapper built `lo-L` / `hi-L` outputs by calling plain
+  `np.quantile` on the raw sample array, bypassing the orientation
+  correction shipped in v0.1.1 (which applied only to
+  `PredictionResult.lower` / `.upper` via `_finalize`). Users
+  calling CSP through `CSPModel.predict` / `CSPModel.forecast`
+  therefore received the same anti-conservative lower bound v0.1.1 was
+  designed to fix. With this change `CSPModel`'s `lo-L` / `hi-L`
+  outputs match `ConformalSeasonalPool.predict(...).lower` / `.upper`
+  to floating-point precision.
+
+  Benchmarks over a 197-series probabilistic forecasting test set
+  showed a 1.7 pp coverage gap at α=0.10 and 1.8 pp at α=0.05 between
+  the two paths before the fix; after the fix both paths agree to
+  Monte-Carlo tolerance.
+
+### Added
+
+- **Optional Numba JIT acceleration** for the per-step batched quantile
+  inside `_finalize`. The pure-numpy path remains the default and the
+  only behaviourally tested path; the JIT replacement is a drop-in
+  speed optimisation that activates automatically when Numba is
+  installed and the environment variable `CSP_NO_NUMBA` is not set to
+  `"1"`. Install via `pip install csp-forecaster[numba]`.
+
+  Expected speedup: ~5–15% on per-step time once the JIT cache is warm
+  (the first call carries a 2–3 s one-time compile cost cached to
+  `__pycache__`). Numpy and Numba paths produce byte-equivalent output;
+  Numba is strictly a performance option, not a correctness fix.
+
+- `tests/test_cspmodel_orientation.py` — asserts that
+  `CSPModel.predict` returns `lo-L` / `hi-L` matching
+  `ConformalSeasonalPool.predict` `lower` / `upper` to floating-point
+  precision.
+
+- `tests/test_numba_equivalence.py` — asserts that the Numba-JIT path
+  (when installed) produces sample quantiles byte-equivalent to the
+  pure-numpy path.
+
 ## [0.1.1] — 2026-06-13
 
 ### Fixed

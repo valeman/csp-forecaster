@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csp-forecaster"
-version = "0.1.1"
+version = "0.1.2"
 description = "Conformal Seasonal Pools (CSP): a training-free probabilistic time-series forecaster"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,6 +14,10 @@ dependencies = ["numpy>=1.21"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# Optional JIT acceleration for the per-step quantile kernel.
+# Pure numpy is the default; installing numba gives ~5-15% extra speed
+# once the JIT cache is warm. Most users do NOT need this.
+numba = ["numba>=0.59"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

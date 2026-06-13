@@ -94,11 +94,30 @@ class CSPModel:
         )
 
     def _result_dict(self, samples: np.ndarray, level: Optional[List[int]]) -> Dict[str, np.ndarray]:
+        """Build the statsforecast-style output dict from a sample matrix.
+
+        Per-level quantiles are routed through
+        :meth:`ConformalSeasonalPool._oriented_index` so the ``lo-L`` /
+        ``hi-L`` bounds receive the same orientation-correct finite-
+        sample correction the core ``predict`` path applies in
+        ``_finalize``. Users hitting CSP via
+        ``StatsForecast(models=[CSPModel(...)])`` therefore see exactly
+        the same bounds as users calling
+        ``ConformalSeasonalPool.predict(...)`` directly.
+
+        Prior to v0.1.2 this used plain ``np.quantile``, which was
+        anti-conservative on the lower tail and reproduced the same bug
+        v0.1.1 fixed in the core class. The two paths now agree to
+        floating-point precision.
+        """
+        n = samples.shape[1]
         out: Dict[str, np.ndarray] = {"mean": samples.mean(axis=1)}
         if level:
             for lv in level:
                 a = 1.0 - lv / 100.0
-                lo, hi = np.quantile(samples, [a / 2.0, 1.0 - a / 2.0], axis=1)
+                q_lo = ConformalSeasonalPool._oriented_index(a / 2.0, n)
+                q_hi = ConformalSeasonalPool._oriented_index(1.0 - a / 2.0, n)
+                lo, hi = np.quantile(samples, [q_lo, q_hi], axis=1)
                 out[f"lo-{lv}"] = lo
                 out[f"hi-{lv}"] = hi
         return out
