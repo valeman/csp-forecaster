@@ -13,8 +13,12 @@ No training, no neural network, no learned parameters.
 
 ## Install
 
+Not on PyPI yet — install from GitHub:
+
 ```bash
-pip install -e csp_forecaster        # from the repo root
+pip install git+https://github.com/valeman/csp-forecaster.git
+# or, from a local clone, for development:
+#   pip install -e .
 # dependency: numpy only
 ```
 
