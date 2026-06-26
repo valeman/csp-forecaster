@@ -38,7 +38,7 @@ On the classic **AirPassengers** series, in a rolling-origin backtest against th
 4. **And this is a hard case for CSP.** AirPassengers is strongly trending — outside CSP's
    stable-level seasonal design domain, where the paper shows it beats the neural DeepNPTS baseline.
 
-Reproducible notebook: [`examples/airpassengers_csp_colab.ipynb`](examples/).
+Reproducible notebook: [`examples/airpassengers_intervals_comparison.ipynb`](examples/airpassengers_intervals_comparison.ipynb).
 
 ## Install
 
