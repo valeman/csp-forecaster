@@ -42,6 +42,10 @@ from .core import ConformalSeasonalPool
 class CSPModel:
     """statsforecast-compatible wrapper around :class:`ConformalSeasonalPool`."""
 
+    # statsforecast orchestrator protocol: models declare whether they consume
+    # exogenous regressors. CSP does not.
+    uses_exog = False
+
     def __init__(
         self,
         season_length: int = 1,
@@ -50,6 +54,8 @@ class CSPModel:
         cal_fraction: float = 0.5,
         adaptive: bool = True,
         mode: str = "fast",
+        residual_mode: str = "paper",
+        orientation: bool = True,
         n_samples: int = 100,
         alias: str = "CSP",
         random_state: "int | None" = None,
@@ -60,6 +66,8 @@ class CSPModel:
         self.cal_fraction = cal_fraction
         self.adaptive = adaptive
         self.mode = mode
+        self.residual_mode = residual_mode
+        self.orientation = orientation
         self.n_samples = n_samples
         self.alias = alias
         self.random_state = random_state
@@ -74,6 +82,8 @@ class CSPModel:
             cal_fraction=self.cal_fraction,
             adaptive=self.adaptive,
             mode=self.mode,
+            residual_mode=self.residual_mode,
+            orientation=self.orientation,
             n_samples=self.n_samples,
             alias=self.alias,
             random_state=self.random_state,
@@ -90,6 +100,8 @@ class CSPModel:
             cal_fraction=self.cal_fraction,
             adaptive=self.adaptive,
             mode=self.mode,
+            residual_mode=self.residual_mode,
+            orientation=self.orientation,
             random_state=self.random_state,
         )
 
@@ -115,11 +127,35 @@ class CSPModel:
         if level:
             for lv in level:
                 a = 1.0 - lv / 100.0
-                q_lo = ConformalSeasonalPool._oriented_index(a / 2.0, n)
-                q_hi = ConformalSeasonalPool._oriented_index(1.0 - a / 2.0, n)
-                lo, hi = np.quantile(samples, [q_lo, q_hi], axis=1)
+                lo_t, hi_t = a / 2.0, 1.0 - a / 2.0
+                if self.orientation:
+                    lo_t = ConformalSeasonalPool._oriented_index(lo_t, n)
+                    hi_t = ConformalSeasonalPool._oriented_index(hi_t, n)
+                lo, hi = np.quantile(samples, [lo_t, hi_t], axis=1)
                 out[f"lo-{lv}"] = lo
                 out[f"hi-{lv}"] = hi
+        return out
+
+    def _insample(self, y: np.ndarray, level: Optional[List[int]]) -> Dict[str, np.ndarray]:
+        """Seasonal-naive in-sample fitted values + constant-width conformal bands."""
+        yv = np.asarray(y, dtype=float).ravel()
+        n, m = yv.size, self.season_length
+        fitted = np.full(n, np.nan)
+        if n > m:
+            fitted[m:] = yv[:-m]
+        out: Dict[str, np.ndarray] = {"fitted": fitted}
+        if level:
+            R = (yv[m:] - yv[:-m]) if (m >= 1 and n > m) else np.diff(yv)
+            if R.size == 0:
+                R = np.array([0.0])
+            for lv in level:
+                a = 1.0 - lv / 100.0
+                lo_t, hi_t = a / 2.0, 1.0 - a / 2.0
+                if self.orientation:
+                    lo_t = ConformalSeasonalPool._oriented_index(lo_t, R.size)
+                    hi_t = ConformalSeasonalPool._oriented_index(hi_t, R.size)
+                out[f"fitted-lo-{lv}"] = fitted + float(np.quantile(R, lo_t))
+                out[f"fitted-hi-{lv}"] = fitted + float(np.quantile(R, hi_t))
         return out
 
     # --------------------------------------------------------- protocol API
@@ -148,6 +184,16 @@ class CSPModel:
         fitted: bool = False,
     ) -> Dict[str, np.ndarray]:
         """One-shot fit-then-predict (the method StatsForecast.forecast calls)."""
-        model = self._make().fit(np.asarray(y, dtype=float).ravel(), self.season_length)
+        yv = np.asarray(y, dtype=float).ravel()
+        model = self._make().fit(yv, self.season_length)
         res = model.predict(h, alpha=0.05, n_samples=self.n_samples)
-        return self._result_dict(res.samples, level)
+        out = self._result_dict(res.samples, level)
+        if fitted:
+            out.update(self._insample(yv, level))
+        return out
+
+    def predict_in_sample(self, level: Optional[List[int]] = None) -> Dict[str, np.ndarray]:
+        """In-sample (fitted) values for the fitted model."""
+        if not hasattr(self, "model_"):
+            raise RuntimeError("call fit() before predict_in_sample()")
+        return self._insample(self.model_.history, level)

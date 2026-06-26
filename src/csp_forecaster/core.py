@@ -149,6 +149,35 @@ class ConformalSeasonalPool:
         are available. If False ("CSP-Fixed"), ``pool_weight`` is used as given.
     mode : {"fast", "legacy"}
         Execution path (see module docstring).
+    residual_mode : {"paper", "h_step"}, default "paper"
+        How the conformal residual pool is built across the forecast horizon.
+
+        - ``"paper"`` -- a single residual pool (seasonal lag ``m``, or 1-step
+          differences when ``m=1``) reused for every horizon. This is the
+          original CSP behaviour. Interval width is then constant across
+          horizons, so for non-seasonal (``m=1``) or long-horizon (``H>m``)
+          series the intervals are too narrow far out and coverage decays with
+          horizon.
+        - ``"h_step"`` -- the residual pool is indexed by horizon using the
+          seasonal-naive multi-step lag ``L_h = m * ceil(h/m)``. For ``h <= m``
+          this equals ``m`` (identical to ``"paper"``), so seasonal short-horizon
+          forecasts are unchanged; for ``m=1`` it equals ``h``, so the interval
+          widens with horizon and coverage stays near nominal.
+
+        Use ``"h_step"`` when you forecast non-seasonal series, or horizons longer
+        than one season, and want calibrated multi-step intervals; keep
+        ``"paper"`` to reproduce the published numbers exactly.
+    orientation : bool, default True
+        Apply a finite-sample (conformal) correction to the interval quantiles.
+        With ``n`` samples a lower quantile ``q`` is evaluated at
+        ``floor((n+1)*q)/n`` and an upper quantile at ``ceil((n+1)*q)/n`` instead
+        of plain ``q`` -- i.e. the bounds are pushed slightly outward. This raises
+        finite-sample coverage (closer to nominal) at the cost of slightly wider
+        intervals, which mildly *worsens* sharpness scores such as CRPS.
+
+        Set ``orientation=True`` when nominal coverage matters most; set
+        ``orientation=False`` for the sharpest intervals / best CRPS, or to
+        reproduce the plain-quantile paper behaviour.
     random_state : int | np.random.Generator | None
         Seed/generator for ``mode="fast"``. Ignored by ``mode="legacy"`` (which
         uses the global NumPy RNG for bit-exact reproduction of the paper).
@@ -161,15 +190,21 @@ class ConformalSeasonalPool:
         cal_fraction: float = 0.5,
         adaptive: bool = True,
         mode: str = "fast",
+        residual_mode: str = "paper",
+        orientation: bool = True,
         random_state: "int | np.random.Generator | None" = None,
     ):
         if mode not in ("fast", "legacy"):
             raise ValueError(f"mode must be 'fast' or 'legacy', got {mode!r}")
+        if residual_mode not in ("paper", "h_step"):
+            raise ValueError(f"residual_mode must be 'paper' or 'h_step', got {residual_mode!r}")
         self.pool_weight = pool_weight
         self.exp_lambda = exp_lambda
         self.cal_fraction = cal_fraction
         self.adaptive = adaptive
         self.mode = mode
+        self.residual_mode = residual_mode
+        self.orientation = bool(orientation)
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
         self.name = "CSP-Adaptive" if adaptive else "CSP-Fixed"
@@ -222,6 +257,37 @@ class ConformalSeasonalPool:
             residuals = np.array([0.0])
         return residuals
 
+    def _residuals_lag(self, lag: int) -> np.ndarray:
+        """Signed residuals at an arbitrary lag over the calibration window.
+
+        ``_residuals_lag(m)`` reproduces ``_residuals()`` exactly; used by
+        ``residual_mode="h_step"`` to widen the conformal pool with horizon.
+        """
+        T = len(self.history)
+        n_cal = max(int(T * self.cal_fraction), self.seasonal_period + 1)
+        n_cal = min(n_cal, T)
+        cal = self.history[T - n_cal:]
+        if lag >= 1 and len(cal) > lag:
+            R = cal[lag:] - cal[:-lag]
+        else:
+            R = np.diff(cal)
+        if R.size == 0:
+            R = np.array([0.0])
+        return R
+
+    def _residual_pools(self, H: int) -> "Optional[List[np.ndarray]]":
+        """Per-horizon residual pools for h_step mode, else None.
+
+        Lag for horizon h (1-indexed) is ``L_h = m * ceil(h / m)`` -- the
+        seasonal-naive multi-step lag. For ``h <= m`` this equals m (so the pool
+        is identical to ``residual_mode="paper"``); for ``m=1`` it equals h, which
+        fixes the multi-step undercoverage of non-seasonal series.
+        """
+        if self.residual_mode != "h_step":
+            return None
+        m = self.seasonal_period
+        return [self._residuals_lag(m * int(np.ceil((h + 1) / m))) for h in range(H)]
+
     # --------------------------------------------------------------- predict
     def predict(
         self,
@@ -246,9 +312,11 @@ class ConformalSeasonalPool:
 
         season_idx = {pos: np.where(np.arange(T) % m == pos)[0] for pos in range(m)}
         residuals = self._residuals()
+        pools = self._residual_pools(H)        # None unless residual_mode="h_step"
 
         samples = np.empty((H, n_samples))
         for h in range(H):
+            res_h = residuals if pools is None else pools[h]
             n_pool = int(n_samples * pool_weight_eff)
             n_conf = n_samples - n_pool
             parts = []
@@ -268,7 +336,7 @@ class ConformalSeasonalPool:
                     n_conf += n_pool
             if n_conf > 0:
                 mu = self._seasonal_point_forecast(h)
-                parts.append(mu + np.random.choice(residuals, n_conf, replace=True))
+                parts.append(mu + np.random.choice(res_h, n_conf, replace=True))
             all_samples = np.concatenate(parts) if parts else np.full(n_samples, self.history[-1])
             if len(all_samples) < n_samples:
                 all_samples = np.resize(all_samples, n_samples)
@@ -283,6 +351,7 @@ class ConformalSeasonalPool:
         pw = self._effective_pool_weight()
         rng = self._rng
         residuals = self._residuals()
+        pools = self._residual_pools(H)        # None unless residual_mode="h_step"
         # With no seasonality (m<=1) the seasonal pool is undefined, so the full
         # sample budget goes to the conformal component. (The legacy path leaves
         # n_pool>0 here and tiles the short conformal draw up to n_samples,
@@ -326,8 +395,9 @@ class ConformalSeasonalPool:
                 else:
                     nc_h += np_h
             if nc_h > 0:
+                res_h = residuals if pools is None else pools[h]
                 mu = self._seasonal_point_forecast(h)
-                parts.append(mu + residuals[rng.integers(0, residuals.size, nc_h)])
+                parts.append(mu + res_h[rng.integers(0, res_h.size, nc_h)])
             row = np.concatenate(parts) if parts else np.full(n_samples, self.history[-1])
             samples[h, :] = row[:n_samples]
 
@@ -366,13 +436,16 @@ class ConformalSeasonalPool:
     def _finalize(self, samples, alpha, quantile_levels, pw_eff, residuals) -> PredictionResult:
         H, n = samples.shape
         taus = sorted(set([alpha / 2.0, 1.0 - alpha / 2.0, *quantile_levels]))
-        # Orientation-correct finite-sample conformal indices.
-        oriented_taus = np.asarray(
-            [self._oriented_index(t, n) for t in taus], dtype=np.float64,
-        )
+        if self.orientation:
+            # Orientation-correct finite-sample conformal indices.
+            eval_taus = np.asarray(
+                [self._oriented_index(t, n) for t in taus], dtype=np.float64,
+            )
+        else:
+            eval_taus = np.asarray(taus, dtype=np.float64)
         # Single batched call — routed through the optional Numba JIT
         # when available, otherwise pure-numpy np.quantile.
-        q = _batched_quantile(samples, oriented_taus)
+        q = _batched_quantile(samples, eval_taus)
         tau_to_row = {t: q[i] for i, t in enumerate(taus)}
         return PredictionResult(
             lower=tau_to_row[alpha / 2.0],
@@ -383,6 +456,8 @@ class ConformalSeasonalPool:
             alpha=alpha,
             metadata={
                 "mode": self.mode,
+                "residual_mode": self.residual_mode,
+                "orientation": self.orientation,
                 "pool_weight": self.pool_weight,
                 "pool_weight_eff": pw_eff,
                 "exp_lambda": self.exp_lambda,

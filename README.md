@@ -55,6 +55,77 @@ undefined. The legacy path reproduces the original code (draws a half-budget
 conformal sample and tiles it up to `n_samples`); the fast path does the cleaner
 thing and draws the full budget from the conformal component.
 
+## Options — what each one does, and when to use it
+
+`ConformalSeasonalPool` exposes four behavioural knobs. The defaults reproduce the
+published model; the others let you trade calibration against sharpness or adapt to
+non-seasonal / long-horizon data.
+
+### `adaptive` (bool, default `True`)
+
+Chooses the variant. `adaptive=True` (**CSP-Adaptive**) turns the seasonal pool *off*
+when there is no seasonality (`m≤1`) and down-weights it when fewer than three full
+seasonal cycles are available; `adaptive=False` (**CSP-Fixed**) always mixes the pool at
+`pool_weight`. Use Adaptive as the general default; Fixed only if you specifically want a
+constant pool weight regardless of history depth.
+
+### `mode` ({"fast", "legacy"}, default `"fast"`)
+
+Implementation path, *not* a modelling choice. `"fast"` is vectorized with a seeded
+generator (reproducible, float32 samples); `"legacy"` is the original per-horizon loop on
+the global RNG and is **bit-exact** with the published code. Use `"legacy"` only to
+reproduce paper numbers exactly; `"fast"` otherwise.
+
+### `residual_mode` ({"paper", "h_step"}, default `"paper"`)
+
+How the conformal residual pool is built **across the horizon**.
+
+- `"paper"` — one residual pool (seasonal lag `m`, or 1-step differences when `m=1`) reused
+  for every horizon. Interval width is then *constant* across horizons. For seasonal data
+  with `H≤m` this is exactly right, but for non-seasonal (`m=1`) or long-horizon (`H>m`)
+  series the far-horizon intervals are too narrow and **coverage decays with horizon**.
+- `"h_step"` — the pool is indexed by horizon with the seasonal-naive multi-step lag
+  `L_h = m·⌈h/m⌉`. For `h≤m` this equals `m` (so seasonal short-horizon forecasts are
+  **unchanged**); for `m=1` it equals `h`, so the interval **widens with horizon** and
+  coverage stays near nominal.
+
+*Why / when:* keep `"paper"` to reproduce the published results, or when all your forecasts
+are seasonal with `H≤m`. Switch to `"h_step"` when you forecast **non-seasonal series or
+horizons longer than one season** — on `exchange_rate` (m=1, H=30) it lifts coverage from
+0.49 → 0.94 *and* improves CRPS, at no cost to the seasonal datasets.
+
+### `orientation` (bool, default `True`)
+
+A finite-sample (conformal) correction to the interval quantiles: a lower quantile `q` is
+read at `⌊(n+1)q⌋/n` and an upper at `⌈(n+1)q⌉/n` instead of plain `q`, pushing the bounds
+slightly outward (`n` = number of samples).
+
+- `orientation=True` — higher finite-sample **coverage** (closer to nominal), but slightly
+  **wider** intervals, which mildly **worsens CRPS** (sharpness).
+- `orientation=False` — plain empirical quantiles: the **sharpest** intervals and best CRPS,
+  and the exact paper behaviour.
+
+*Why / when:* it only changes the reported quantiles, never the samples. Leave it on when
+hitting the nominal coverage level is what matters; turn it off when you optimise CRPS /
+interval sharpness, or to match plain-quantile baselines.
+
+### Choosing a configuration
+
+| Goal | Recommended |
+|---|---|
+| Reproduce the paper exactly | `mode="legacy", residual_mode="paper", orientation=False` |
+| Best calibration (hit nominal coverage) | `residual_mode="h_step", orientation=True` |
+| Best sharpness / CRPS | `residual_mode="h_step", orientation=False` |
+| Non-seasonal or long-horizon data | always `residual_mode="h_step"` |
+| Seasonal, short horizon (`H≤m`) | defaults are fine (`h_step` is a no-op here) |
+
+```python
+# Calibrated multi-step intervals for mixed/non-seasonal data:
+ConformalSeasonalPool(residual_mode="h_step", orientation=True).fit(y, m).predict(H)
+# Sharpest intervals / best CRPS:
+ConformalSeasonalPool(residual_mode="h_step", orientation=False).fit(y, m).predict(H)
+```
+
 ## Nixtla / statsforecast integration
 
 CSP is **not** natively the statsforecast interface (it uses `predict(H, alpha, …)`

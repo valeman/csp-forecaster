@@ -74,3 +74,46 @@ def test_runs_inside_statsforecast_orchestrator():
     assert "CSP" in fc.columns
     assert "CSP-lo-95" in fc.columns and "CSP-hi-95" in fc.columns
     assert len(fc) == 24
+
+
+@pytest.mark.skipif(
+    pytest.importorskip("statsforecast", reason="statsforecast not installed") is None,
+    reason="statsforecast not installed",
+)
+def test_orchestrator_fit_predict_and_fitted():
+    import pandas as pd
+    from statsforecast import StatsForecast
+
+    n = 240
+    df = pd.DataFrame({"unique_id": "s1", "ds": np.arange(n), "y": _series(n=n, m=24)})
+
+    # fit + predict path
+    sf = StatsForecast(models=[CSPModel(season_length=24, alias="CSP", random_state=0)], freq=1)
+    sf.fit(df=df)
+    pr = sf.predict(h=24, level=[95])
+    assert {"CSP", "CSP-lo-95", "CSP-hi-95"}.issubset(pr.columns)
+
+    # fitted=True + forecast_fitted_values
+    sf2 = StatsForecast(models=[CSPModel(season_length=24, alias="CSP", random_state=0)], freq=1)
+    sf2.forecast(df=df, h=24, level=[95], fitted=True)
+    iv = sf2.forecast_fitted_values()
+    assert "CSP" in iv.columns and len(iv) == n
+
+
+@pytest.mark.skipif(
+    pytest.importorskip("statsforecast", reason="statsforecast not installed") is None,
+    reason="statsforecast not installed",
+)
+def test_orchestrator_multi_model_with_options():
+    import pandas as pd
+    from statsforecast import StatsForecast
+
+    n = 240
+    df = pd.DataFrame({"unique_id": "s1", "ds": np.arange(n), "y": _series(n=n, m=12)})
+    models = [
+        CSPModel(season_length=12, alias="CSP", random_state=0),
+        CSPModel(season_length=12, alias="CSP-h", residual_mode="h_step", orientation=False, random_state=0),
+    ]
+    fc = StatsForecast(models=models, freq=1).forecast(df=df, h=12, level=[80, 95])
+    for col in ["CSP", "CSP-lo-95", "CSP-h", "CSP-h-lo-95", "CSP-h-hi-80"]:
+        assert col in fc.columns
