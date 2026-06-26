@@ -11,6 +11,35 @@ CSP produces a full predictive sample per horizon by blending two components:
 
 No training, no neural network, no learned parameters.
 
+## Benchmark highlight — a training-free method that competes with tuned classical models
+
+On the classic **AirPassengers** series, in a rolling-origin backtest against the tuned models from
+*Mastering Modern Time Series Forecasting* by V. Manokhin
+([Pro edition](https://valeman.gumroad.com/l/MasteringModernTimeSeriesForecastingPro) ·
+[Standard](https://valeman.gumroad.com/l/MasteringModernTimeSeriesForecasting) ·
+[Amazon](https://www.amazon.com/Mastering-Modern-Time-Forecasting-Comprehensive/dp/1919465839)):
+
+| Method | CRPS (H=12) | RMSE (H=12) | CRPS (H=24) | RMSE (H=24) |
+|---|--:|--:|--:|--:|
+| ETS(M,A,M) — *tuned* | 11.3 | 18.9 | 15.1 | 24.7 |
+| **CSP — *training-free*** | **12.8** | 21.2 | **17.4** | 28.0 |
+| SARIMA — *tuned* | 13.4 | 24.0 | 20.2 | 37.9 |
+| Seasonal-Naive | 13.3 | 42.9 | 25.9 | 62.1 |
+
+1. **CSP beats the tuned SARIMA on both accuracy and full-distribution quality, at every horizon.**
+   CRPS 12.8 vs 13.4 (H=12) and 17.4 vs 20.2 (H=24); RMSE 21.2 vs 24.0 and 28.0 vs 37.9. With no
+   fitting, no order selection, and no hyper-parameters.
+2. **It transforms its own baseline.** Versus plain Seasonal-Naive, CSP roughly halves the point
+   error (21.2 vs 42.9; 28.0 vs 62.1) and clearly improves CRPS — the conformal-residual structure
+   adds real value.
+3. **CSP ranks 2nd of four on CRPS at both horizons** — behind only a correctly-specified, fitted
+   ETS(M,A,M) (you must pick the multiplicative model *and* fit it). It produces a full predictive
+   distribution in milliseconds.
+4. **And this is a hard case for CSP.** AirPassengers is strongly trending — outside CSP's
+   stable-level seasonal design domain, where the paper shows it beats the neural DeepNPTS baseline.
+
+Reproducible notebook: [`examples/airpassengers_csp_colab.ipynb`](examples/).
+
 ## Install
 
 Not on PyPI yet — install from GitHub:
