@@ -166,4 +166,21 @@ The suite (NumPy only) covers:
 ## Citation
 
 CSP is introduced in *Training-Free Probabilistic Time-Series Forecasting with
-Conformal Seasonal Pools* (V. Manokhin). If you use this package, please cite the paper.
+Conformal Seasonal Pools* (V. Manokhin, 2026), arXiv:2605.03789 —
+<https://arxiv.org/abs/2605.03789>. If you use this package, please cite the paper:
+
+```bibtex
+@misc{manokhin2026csp,
+  title         = {Training-Free Probabilistic Time-Series Forecasting with Conformal Seasonal Pools},
+  author        = {Manokhin, Valery},
+  year          = {2026},
+  eprint        = {2605.03789},
+  archivePrefix = {arXiv},
+  primaryClass  = {stat.ML},
+  url           = {https://arxiv.org/abs/2605.03789}
+}
+```
+
+A companion paper — *Report the Floor: A Training-Free Conformal Interval Is a
+Mandatory Baseline for Probabilistic Time-Series Forecasting* (arXiv:2606.09473) —
+benchmarks CSP against the trivial conformal-naive floors.
