@@ -86,7 +86,7 @@ def test_lower_bound_is_no_less_extreme_than_plain_quantile():
     integer multiple of n (which is the typical case at alpha=0.1, n=100).
     """
     y = _stationary_series(seed=0)
-    csp = ConformalSeasonalPool(adaptive=True, mode="fast", random_state=42)
+    csp = ConformalSeasonalPool(adaptive=True, mode="fast", orientation=True, random_state=42)
     csp.fit(y, seasonal_period=24)
     # alpha=0.05 + n_samples=100  ->  (n+1)*0.025 = 2.525  ->  floor=2, ceil=3
     # so floor/n = 0.02 differs from plain q=0.025 (h=99*0.025=2.475)
@@ -122,7 +122,7 @@ def test_coverage_improves_or_holds_after_fix():
     for seed in range(n_seeds):
         y = _stationary_series(seed=seed, n=1500)
         train, test = y[:1300], y[1300:]
-        csp = ConformalSeasonalPool(adaptive=True, mode="fast", random_state=seed)
+        csp = ConformalSeasonalPool(adaptive=True, mode="fast", orientation=True, random_state=seed)
         csp.fit(train, seasonal_period=24)
         # Predict the next 200 points in one shot — paper-style.
         fc = csp.predict(H=len(test), alpha=0.10, n_samples=100)
@@ -142,7 +142,7 @@ def test_returns_three_taus_for_default_alpha():
     Regression guard: a previous refactor risked collapsing duplicate taus.
     """
     y = _stationary_series(seed=1)
-    csp = ConformalSeasonalPool(adaptive=True, mode="fast", random_state=1)
+    csp = ConformalSeasonalPool(adaptive=True, mode="fast", orientation=True, random_state=1)
     csp.fit(y, seasonal_period=24)
     fc = csp.predict(H=12, alpha=0.10, n_samples=64)
 

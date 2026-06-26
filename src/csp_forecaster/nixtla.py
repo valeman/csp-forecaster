@@ -54,8 +54,9 @@ class CSPModel:
         cal_fraction: float = 0.5,
         adaptive: bool = True,
         mode: str = "fast",
-        residual_mode: str = "paper",
-        orientation: bool = True,
+        residual_mode: str = "h_step",
+        orientation: bool = False,
+        decay_unit: str = "step",
         n_samples: int = 100,
         alias: str = "CSP",
         random_state: "int | None" = None,
@@ -68,6 +69,7 @@ class CSPModel:
         self.mode = mode
         self.residual_mode = residual_mode
         self.orientation = orientation
+        self.decay_unit = decay_unit
         self.n_samples = n_samples
         self.alias = alias
         self.random_state = random_state
@@ -84,6 +86,7 @@ class CSPModel:
             mode=self.mode,
             residual_mode=self.residual_mode,
             orientation=self.orientation,
+            decay_unit=self.decay_unit,
             n_samples=self.n_samples,
             alias=self.alias,
             random_state=self.random_state,
@@ -102,6 +105,7 @@ class CSPModel:
             mode=self.mode,
             residual_mode=self.residual_mode,
             orientation=self.orientation,
+            decay_unit=self.decay_unit,
             random_state=self.random_state,
         )
 

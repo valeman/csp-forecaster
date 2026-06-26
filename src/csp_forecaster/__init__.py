@@ -13,4 +13,4 @@ __all__ = [
     "DEFAULT_QUANTILE_LEVELS",
     "CSPModel",
 ]
-__version__ = "0.1.3"
+__version__ = "0.1.4"

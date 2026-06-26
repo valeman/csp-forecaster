@@ -149,7 +149,7 @@ class ConformalSeasonalPool:
         are available. If False ("CSP-Fixed"), ``pool_weight`` is used as given.
     mode : {"fast", "legacy"}
         Execution path (see module docstring).
-    residual_mode : {"paper", "h_step"}, default "paper"
+    residual_mode : {"paper", "h_step"}, default "h_step"
         How the conformal residual pool is built across the forecast horizon.
 
         - ``"paper"`` -- a single residual pool (seasonal lag ``m``, or 1-step
@@ -167,17 +167,29 @@ class ConformalSeasonalPool:
         Use ``"h_step"`` when you forecast non-seasonal series, or horizons longer
         than one season, and want calibrated multi-step intervals; keep
         ``"paper"`` to reproduce the published numbers exactly.
-    orientation : bool, default True
+    orientation : bool, default False
         Apply a finite-sample (conformal) correction to the interval quantiles.
         With ``n`` samples a lower quantile ``q`` is evaluated at
         ``floor((n+1)*q)/n`` and an upper quantile at ``ceil((n+1)*q)/n`` instead
         of plain ``q`` -- i.e. the bounds are pushed slightly outward. This raises
-        finite-sample coverage (closer to nominal) at the cost of slightly wider
-        intervals, which mildly *worsens* sharpness scores such as CRPS.
+        finite-sample coverage (closer to nominal) but **widens** the intervals.
+        It does **not** change the predictive samples, so CRPS is unaffected; it
+        does, however, *worsen* the Winkler/interval score (the extra width is
+        penalised). Default is off for the sharpest intervals and best
+        CRPS/Winkler; set ``orientation=True`` only when hitting the nominal
+        coverage level is the priority.
+    decay_unit : {"cycle", "step"}, default "step"
+        Unit for the seasonal-pool exponential recency decay (rate ``exp_lambda``).
 
-        Set ``orientation=True`` when nominal coverage matters most; set
-        ``orientation=False`` for the sharpest intervals / best CRPS, or to
-        reproduce the plain-quantile paper behaviour.
+        - ``"step"`` -- decay by absolute observation age (time steps). Same-phase
+          observations one season apart are ``m`` steps apart, so this weights
+          recent cycles far more heavily and concentrates the pool on the recent
+          regime. Gives the best CRPS / Winkler.
+        - ``"cycle"`` -- decay by cycle age (the original paper behaviour); with
+          the same ``exp_lambda`` this is ``m`` times weaker than ``"step"``.
+
+        Use ``"cycle"`` (with ``residual_mode="paper"``, ``orientation=False``,
+        ``mode="legacy"``) to reproduce the published paper numbers exactly.
     random_state : int | np.random.Generator | None
         Seed/generator for ``mode="fast"``. Ignored by ``mode="legacy"`` (which
         uses the global NumPy RNG for bit-exact reproduction of the paper).
@@ -190,14 +202,17 @@ class ConformalSeasonalPool:
         cal_fraction: float = 0.5,
         adaptive: bool = True,
         mode: str = "fast",
-        residual_mode: str = "paper",
-        orientation: bool = True,
+        residual_mode: str = "h_step",
+        orientation: bool = False,
+        decay_unit: str = "step",
         random_state: "int | np.random.Generator | None" = None,
     ):
         if mode not in ("fast", "legacy"):
             raise ValueError(f"mode must be 'fast' or 'legacy', got {mode!r}")
         if residual_mode not in ("paper", "h_step"):
             raise ValueError(f"residual_mode must be 'paper' or 'h_step', got {residual_mode!r}")
+        if decay_unit not in ("cycle", "step"):
+            raise ValueError(f"decay_unit must be 'cycle' or 'step', got {decay_unit!r}")
         self.pool_weight = pool_weight
         self.exp_lambda = exp_lambda
         self.cal_fraction = cal_fraction
@@ -205,6 +220,7 @@ class ConformalSeasonalPool:
         self.mode = mode
         self.residual_mode = residual_mode
         self.orientation = bool(orientation)
+        self.decay_unit = decay_unit
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
         self.name = "CSP-Adaptive" if adaptive else "CSP-Fixed"
@@ -326,8 +342,12 @@ class ConformalSeasonalPool:
                 if len(idx) >= 2:
                     pool = self.history[idx]
                     if self.exp_lambda > 0:
-                        cycles = idx // m
-                        weights = np.exp(-self.exp_lambda * (cycles[-1] - cycles).astype(np.float64))
+                        if self.decay_unit == "step":
+                            ages = (idx[-1] - idx).astype(np.float64)
+                        else:
+                            cycles = idx // m
+                            ages = (cycles[-1] - cycles).astype(np.float64)
+                        weights = np.exp(-self.exp_lambda * ages)
                         weights = weights / weights.sum()
                         parts.append(np.random.choice(pool, n_pool, replace=True, p=weights))
                     else:
@@ -371,8 +391,12 @@ class ConformalSeasonalPool:
                 if len(idx) >= 2:
                     pool = self.history[idx]
                     if self.exp_lambda > 0:
-                        cycles = idx // m
-                        w = np.exp(-self.exp_lambda * (cycles[-1] - cycles).astype(np.float64))
+                        if self.decay_unit == "step":
+                            ages = (idx[-1] - idx).astype(np.float64)
+                        else:
+                            cycles = idx // m
+                            ages = (cycles[-1] - cycles).astype(np.float64)
+                        w = np.exp(-self.exp_lambda * ages)
                         phase_cache[pos] = (pool, np.cumsum(w / w.sum()))
                     else:
                         phase_cache[pos] = (pool, None)
@@ -458,6 +482,7 @@ class ConformalSeasonalPool:
                 "mode": self.mode,
                 "residual_mode": self.residual_mode,
                 "orientation": self.orientation,
+                "decay_unit": self.decay_unit,
                 "pool_weight": self.pool_weight,
                 "pool_weight_eff": pw_eff,
                 "exp_lambda": self.exp_lambda,

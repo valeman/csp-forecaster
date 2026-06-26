@@ -57,9 +57,13 @@ thing and draws the full budget from the conformal component.
 
 ## Options — what each one does, and when to use it
 
-`ConformalSeasonalPool` exposes four behavioural knobs. The defaults reproduce the
-published model; the others let you trade calibration against sharpness or adapt to
-non-seasonal / long-horizon data.
+`ConformalSeasonalPool` exposes five behavioural knobs.
+
+> **Defaults changed in v0.1.4.** The defaults are now the **recommended, best-scoring
+> configuration** — `residual_mode="h_step"`, `decay_unit="step"`, `orientation=False` —
+> which wins on CRPS *and* the Winkler/interval score *and* sharpness across a 20-dataset
+> benchmark, while fixing non-seasonal coverage. To reproduce the **original paper** behaviour
+> exactly, set `mode="legacy", residual_mode="paper", decay_unit="cycle", orientation=False`.
 
 ### `adaptive` (bool, default `True`)
 
@@ -76,7 +80,7 @@ generator (reproducible, float32 samples); `"legacy"` is the original per-horizo
 the global RNG and is **bit-exact** with the published code. Use `"legacy"` only to
 reproduce paper numbers exactly; `"fast"` otherwise.
 
-### `residual_mode` ({"paper", "h_step"}, default `"paper"`)
+### `residual_mode` ({"paper", "h_step"}, default `"h_step"`)
 
 How the conformal residual pool is built **across the horizon**.
 
@@ -94,36 +98,52 @@ are seasonal with `H≤m`. Switch to `"h_step"` when you forecast **non-seasonal
 horizons longer than one season** — on `exchange_rate` (m=1, H=30) it lifts coverage from
 0.49 → 0.94 *and* improves CRPS, at no cost to the seasonal datasets.
 
-### `orientation` (bool, default `True`)
+### `decay_unit` ({"cycle", "step"}, default `"step"`)
+
+Unit for the seasonal-pool exponential recency decay (rate `exp_lambda`).
+
+- `"step"` — decay by **absolute observation age** (time steps). Same-phase observations one
+  season apart are `m` steps apart, so this weights recent cycles far more heavily and
+  concentrates the pool on the recent regime. **Best CRPS and Winkler** in benchmarking.
+- `"cycle"` — decay by **cycle age** (the original paper behaviour); with the same `exp_lambda`
+  it is `m`× weaker than `"step"`.
+
+*Why / when:* `"step"` is the single biggest driver of CRPS/sharpness quality and is the new
+default. Use `"cycle"` only to reproduce the published paper numbers. (Note: `exp_lambda` means
+different things under the two units — `0.01` per *step* ≈ `0.01·m` per *cycle*.)
+
+### `orientation` (bool, default `False`)
 
 A finite-sample (conformal) correction to the interval quantiles: a lower quantile `q` is
 read at `⌊(n+1)q⌋/n` and an upper at `⌈(n+1)q⌉/n` instead of plain `q`, pushing the bounds
 slightly outward (`n` = number of samples).
 
-- `orientation=True` — higher finite-sample **coverage** (closer to nominal), but slightly
-  **wider** intervals, which mildly **worsens CRPS** (sharpness).
-- `orientation=False` — plain empirical quantiles: the **sharpest** intervals and best CRPS,
-  and the exact paper behaviour.
+- `orientation=False` (default) — plain empirical quantiles: the **sharpest** intervals, and
+  the best **CRPS** *and* **Winkler/interval score**.
+- `orientation=True` — higher raw **coverage** (closer to nominal) but **wider** intervals.
 
-*Why / when:* it only changes the reported quantiles, never the samples. Leave it on when
-hitting the nominal coverage level is what matters; turn it off when you optimise CRPS /
-interval sharpness, or to match plain-quantile baselines.
+*Why / when:* it only changes the reported quantiles, **never the samples — so CRPS is
+unaffected**. It does, however, *worsen* the Winkler/interval score, because the extra width is
+penalised. Turn it on only when hitting the nominal coverage level is the priority and the wider
+intervals are acceptable.
 
 ### Choosing a configuration
 
-| Goal | Recommended |
+The **defaults** (`residual_mode="h_step", decay_unit="step", orientation=False`) are the
+recommended general config — best CRPS, best Winkler, sharpest intervals, calibrated multi-step.
+
+| Goal | Configuration |
 |---|---|
-| Reproduce the paper exactly | `mode="legacy", residual_mode="paper", orientation=False` |
-| Best calibration (hit nominal coverage) | `residual_mode="h_step", orientation=True` |
-| Best sharpness / CRPS | `residual_mode="h_step", orientation=False` |
-| Non-seasonal or long-horizon data | always `residual_mode="h_step"` |
-| Seasonal, short horizon (`H≤m`) | defaults are fine (`h_step` is a no-op here) |
+| **General use (recommended)** | **defaults** |
+| Reproduce the paper exactly | `mode="legacy", residual_mode="paper", decay_unit="cycle", orientation=False` |
+| Maximise nominal coverage (accept wider intervals) | defaults + `orientation=True` |
 
 ```python
-# Calibrated multi-step intervals for mixed/non-seasonal data:
-ConformalSeasonalPool(residual_mode="h_step", orientation=True).fit(y, m).predict(H)
-# Sharpest intervals / best CRPS:
-ConformalSeasonalPool(residual_mode="h_step", orientation=False).fit(y, m).predict(H)
+# Recommended (this is the default):
+ConformalSeasonalPool().fit(y, m).predict(H)
+# Exact paper reproduction:
+ConformalSeasonalPool(mode="legacy", residual_mode="paper",
+                      decay_unit="cycle", orientation=False).fit(y, m).predict(H)
 ```
 
 ## Nixtla / statsforecast integration

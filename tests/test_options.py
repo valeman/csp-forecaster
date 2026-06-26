@@ -21,15 +21,30 @@ def _randomwalk(seed=0, n=600):
 
 
 # ----------------------------------------------------------------- defaults
-def test_defaults_preserve_published_behaviour():
+def test_defaults_are_recommended_config():
+    # v0.1.4: defaults are the best-scoring config, not the paper baseline.
     m = ConformalSeasonalPool()
-    assert m.orientation is True          # orientation on by default (v0.1.2 behaviour)
-    assert m.residual_mode == "paper"     # h_step opt-in
+    assert m.residual_mode == "h_step"
+    assert m.orientation is False
+    assert m.decay_unit == "step"
 
 
 def test_invalid_residual_mode_raises():
     with pytest.raises(ValueError, match="residual_mode"):
         ConformalSeasonalPool(residual_mode="bogus")
+
+
+def test_invalid_decay_unit_raises():
+    with pytest.raises(ValueError, match="decay_unit"):
+        ConformalSeasonalPool(decay_unit="bogus")
+
+
+def test_decay_unit_changes_seasonal_pool():
+    # step vs cycle weight the same-phase pool differently -> different samples.
+    y = _seasonal(m=24)
+    a = ConformalSeasonalPool(mode="fast", random_state=0, decay_unit="step").fit(y, 24).predict(24, n_samples=4000)
+    b = ConformalSeasonalPool(mode="fast", random_state=0, decay_unit="cycle").fit(y, 24).predict(24, n_samples=4000)
+    assert not np.allclose(a.samples.mean(1), b.samples.mean(1), atol=1e-6)
 
 
 # -------------------------------------------------------------- orientation
