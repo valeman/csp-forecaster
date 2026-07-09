@@ -1,8 +1,8 @@
 # csp_forecaster
 
-A standalone, installable package for **Conformal Seasonal Pools (CSP)** — the
-training-free probabilistic time-series forecaster from the paper *Training-Free
-Probabilistic Time-Series Forecasting with Conformal Seasonal Pools*.
+A standalone, installable package for Conformal Seasonal Pools (CSP) — the
+training-free probabilistic time-series forecaster from the paper [Training-Free
+Probabilistic Time-Series Forecasting with Conformal Seasonal Pools](https://arxiv.org/abs/2605.03789).
 
 CSP produces a full predictive sample per horizon by blending two components:
 
