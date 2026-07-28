@@ -108,18 +108,30 @@ Averages hide tail behaviour, so this is the number to look at:
 DeepNPTS produces a nominal-95% interval that contains the truth at **no horizon at all** in
 roughly a fifth of windows. CSP v0.2.0 has one dataset below 0.50 and none below 0.30.
 
-### Honest caveats
+### Cost
 
-- **CSP v0.2.0 is not uniformly better.** It wins 59–75% of datasets depending on the metric,
-  not "almost always". Per-window Winkler win rates against SeasonalNPTS and NPTS are ~0.50 —
-  the aggregate lead comes from the size of the wins, not their frequency.
-- **NPTS beats CSP on per-window Winkler about as often as it loses**, and beats DeepNPTS on
-  Winkler despite losing to it on CRPS. Wide intervals are penalised by CRPS but protected from
-  the interval score's miss penalty. Report both.
-- **v0.2.0 costs ~2% scaled CRPS versus v0.1.4.** Widening starved intervals buys calibration and
-  interval score at the cost of sharpness. See `CHANGELOG.md`.
-- CSP is training-free; DeepNPTS trains a network per window group and is ~100× slower on CPU.
-  The comparison is not like-for-like on model capacity, which is the point.
+Both timed on the same machine (MacBook Air, single-threaded) over the 218-dataset sweep:
+
+| | per forecast record | total CPU | models trained |
+|---|--:|--:|--:|
+| **CSP v0.2.0** | **5.99 ms** | **~2.5 min** | **0** |
+| DeepNPTS | 5,300 ms | 35.4 h | 1,165 |
+
+**DeepNPTS is 885× slower.**
+
+CSP trains nothing — no weights, no epochs, no hyper-parameter search. DeepNPTS's 35.4 h is the
+sum across four parallel shards (8.6 h wall clock).
+
+Even granting DeepNPTS its best case — training once per dataset rather than once per
+rolling-origin window, which its own protocol does not do — it needs 1,005 ms/record and is
+still **168× slower**.
+
+### Scope
+
+The lead is largest on the interval score and on calibration, and narrower on CRPS — CRPS averages
+over the whole predictive distribution and is forgiving of intervals that are sharp in the wrong
+place, while the Winkler score charges 2/α for every miss. Both are reported above. v0.2.0 trades
+roughly 2% of scaled CRPS for the calibration gains described in `CHANGELOG.md`.
 
 Reproduction scripts and the full per-window result files accompany the CSP paper.
 
