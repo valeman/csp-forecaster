@@ -135,6 +135,13 @@ class PredictionResult:
 class ConformalSeasonalPool:
     """Conformal Seasonal Pool forecaster.
 
+    Class attributes
+    ----------------
+    MIN_RESIDUALS : int
+        Minimum size of a per-horizon conformal residual pool before
+        :meth:`_residuals_lag` widens its search. Guards against the degenerate
+        pools that produced zero-width intervals prior to v0.2.0.
+
     Parameters
     ----------
     pool_weight : float
@@ -194,6 +201,9 @@ class ConformalSeasonalPool:
         Seed/generator for ``mode="fast"``. Ignored by ``mode="legacy"`` (which
         uses the global NumPy RNG for bit-exact reproduction of the paper).
     """
+
+    MIN_RESIDUALS: int = 8
+
 
     def __init__(
         self,
@@ -274,22 +284,63 @@ class ConformalSeasonalPool:
         return residuals
 
     def _residuals_lag(self, lag: int) -> np.ndarray:
-        """Signed residuals at an arbitrary lag over the calibration window.
+        """Signed residuals at an arbitrary lag, with starvation guards.
 
-        ``_residuals_lag(m)`` reproduces ``_residuals()`` exactly; used by
-        ``residual_mode="h_step"`` to widen the conformal pool with horizon.
+        ``_residuals_lag(m)`` reproduces ``_residuals()`` exactly whenever the calibration
+        window is long enough; used by ``residual_mode="h_step"`` to widen the conformal
+        pool with horizon.
+
+        Why the guards (fixed in v0.2.0)
+        --------------------------------
+        With ``residual_mode="h_step"`` the lag grows as ``L_h = m * ceil(h / m)``. Drawing
+        the pool from the calibration window alone (half the history by default) means the
+        pool SHRINKS as the horizon grows. On short series it starves:
+
+            m3_yearly, m=1, H=6, |history|=14  ->  n_cal=7
+            pool size by horizon: 6, 5, 4, 3, 2, 1
+
+        A one-element pool makes every draw identical: the predictive distribution collapses
+        to a point mass, the 95% interval has width exactly 0.0, and coverage is exactly 0.0.
+        The old code also fell back to ``np.diff(cal)`` -- ONE-step residuals used to size an
+        H-step-ahead interval -- silently, which is far too narrow.
+
+        The fix is three ordered fallbacks, each preferred over the next:
+
+        1. calibration window, if it yields >= ``MIN_RESIDUALS`` residuals.
+           This is the pre-v0.2.0 behaviour and always fires on long series, so results on
+           long histories are unchanged (verified bit-identical).
+        2. else the FULL history at the SAME lag -- widen where we look before compromising
+           what we measure, so the residual still measures L-step-ahead error.
+        3. else the longest usable lag ``l < L``, rescaled by ``sqrt(L / l)`` (random-walk
+           scaling of multi-step error), and finally ``sqrt(L)``-scaled one-step diffs.
+
+        Never silently substitute a shorter horizon; if the lag must be shortened, scale.
         """
-        T = len(self.history)
+        y = self.history
+        T = len(y)
+        lag = max(1, int(lag))
+
         n_cal = max(int(T * self.cal_fraction), self.seasonal_period + 1)
         n_cal = min(n_cal, T)
-        cal = self.history[T - n_cal:]
-        if lag >= 1 and len(cal) > lag:
-            R = cal[lag:] - cal[:-lag]
-        else:
-            R = np.diff(cal)
-        if R.size == 0:
-            R = np.array([0.0])
-        return R
+        cal = y[T - n_cal:]
+
+        # 1. calibration window (unchanged behaviour when it is long enough)
+        if len(cal) - lag >= self.MIN_RESIDUALS:
+            return cal[lag:] - cal[:-lag]
+
+        # 2. widen the window before touching the lag
+        if T - lag >= self.MIN_RESIDUALS:
+            return y[lag:] - y[:-lag]
+
+        # 3. shorten the lag, but scale the residuals to the requested horizon
+        for shorter in range(lag - 1, 0, -1):
+            if T - shorter >= self.MIN_RESIDUALS:
+                return (y[shorter:] - y[:-shorter]) * np.sqrt(lag / shorter)
+
+        d = np.diff(y)
+        if d.size == 0:
+            return np.array([0.0])
+        return d * np.sqrt(lag)
 
     def _residual_pools(self, H: int) -> "Optional[List[np.ndarray]]":
         """Per-horizon residual pools for h_step mode, else None.

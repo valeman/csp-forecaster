@@ -11,6 +11,20 @@ CSP produces a full predictive sample per horizon by blending two components:
 
 No training, no neural network, no learned parameters.
 
+## Publication
+
+The CSP paper has been **accepted at COPA 2026** (Symposium on Conformal and Probabilistic
+Prediction with Applications) and will appear in the **Proceedings of Machine Learning Research**
+(PMLR, vol. 329), published through JMLR.
+
+A companion article for practitioners is **forthcoming in *Foresight: The International Journal of
+Applied Forecasting***.
+
+> Manokhin, V. (2026). *Training-Free Probabilistic Time-Series Forecasting with Conformal
+> Seasonal Pools.* Proceedings of Machine Learning Research, vol. 329 (COPA 2026).
+
+Please cite the paper if you use this package. See [`CITATION`](#citation) below.
+
 ## Benchmark highlight — a training-free method that competes with tuned classical models
 
 On the classic **AirPassengers** series, in a rolling-origin backtest against the tuned models from
@@ -39,6 +53,75 @@ On the classic **AirPassengers** series, in a rolling-origin backtest against th
    stable-level seasonal design domain, where the paper shows it beats the neural DeepNPTS baseline.
 
 Reproducible notebook: [`examples/airpassengers_intervals_comparison.ipynb`](examples/airpassengers_intervals_comparison.ipynb).
+
+## Benchmark — v0.2.0 on 218 datasets
+
+Every method evaluated on **identical rolling-origin windows with matched seeds**:
+218 datasets, 231 dataset-runs, **22,822 windows**, drawn from the Monash archive, the GluonTS
+and LOTSA collections, the chronos parquet corpus and assorted public sources, at frequencies
+from 5-minutely to yearly.
+
+Ranks are per-window over the five methods shown (1 = best). Coverage targets 0.95.
+MSIS is the mean scaled interval score; log density and PIT edge measure the full predictive
+distribution rather than just the interval.
+
+| method | CRPS rank | Winkler rank | MSIS | coverage | \|cov−0.95\| | log dens | PIT edge |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| **CSP v0.2.0 (this package)** | **2.32** | **2.30** | **29.1** | **0.910** | **0.057** | **−5.23** | **0.131** |
+| Nixtla `ConformalSeasonalPool` | 2.52 | 2.68 | 37.5 | 0.865 | 0.098 | −5.59 | 0.186 |
+| DeepNPTS (GluonTS, trained) | 3.11 | 3.95 | 51.8 | 0.566 | 0.384 | −8.40 | 0.481 |
+| SeasonalNPTS (GluonTS) | 3.27 | 3.26 | 45.9 | 0.756 | 0.200 | −5.98 | 0.292 |
+| NPTS (GluonTS) | 3.78 | 2.80 | 44.1 | 0.847 | 0.111 | −5.63 | 0.207 |
+
+**CSP v0.2.0 ranks first on all seven metrics.**
+
+### Head-to-head, datasets won (of 231)
+
+| vs | CRPS | Winkler | MSIS |
+|---|--:|--:|--:|
+| Nixtla CSP | 137 | 149 | 154 |
+| DeepNPTS | 160 | **185** | **197** |
+| SeasonalNPTS | 148 | 152 | 150 |
+| NPTS | **174** | 137 | 138 |
+
+Paired Wilcoxon over all 22,822 windows, on calibration (`|coverage − 0.95|`):
+
+| vs | CSP v0.2.0 | other | *p* |
+|---|--:|--:|--:|
+| Nixtla CSP | **0.100** | 0.127 | 7.8×10⁻¹⁷² |
+| DeepNPTS | **0.100** | 0.424 | < 10⁻³⁰⁰ |
+| SeasonalNPTS | **0.100** | 0.226 | < 10⁻³⁰⁰ |
+| NPTS | **0.100** | 0.150 | 1.9×10⁻²¹³ |
+
+### Where the intervals actually fail
+
+Averages hide tail behaviour, so this is the number to look at:
+
+| method | datasets with coverage < 0.80 | < 0.50 | worst coverage |
+|---|--:|--:|--:|
+| **CSP v0.2.0** | **18** | **1** | **0.487** |
+| Nixtla CSP | 42 | 14 | 0.266 |
+| NPTS | 50 | 16 | 0.166 |
+| SeasonalNPTS | 99 | 38 | 0.060 |
+| DeepNPTS | 160 | 89 | **0.000** |
+
+DeepNPTS produces a nominal-95% interval that contains the truth at **no horizon at all** in
+roughly a fifth of windows. CSP v0.2.0 has one dataset below 0.50 and none below 0.30.
+
+### Honest caveats
+
+- **CSP v0.2.0 is not uniformly better.** It wins 59–75% of datasets depending on the metric,
+  not "almost always". Per-window Winkler win rates against SeasonalNPTS and NPTS are ~0.50 —
+  the aggregate lead comes from the size of the wins, not their frequency.
+- **NPTS beats CSP on per-window Winkler about as often as it loses**, and beats DeepNPTS on
+  Winkler despite losing to it on CRPS. Wide intervals are penalised by CRPS but protected from
+  the interval score's miss penalty. Report both.
+- **v0.2.0 costs ~2% scaled CRPS versus v0.1.4.** Widening starved intervals buys calibration and
+  interval score at the cost of sharpness. See `CHANGELOG.md`.
+- CSP is training-free; DeepNPTS trains a network per window group and is ~100× slower on CPU.
+  The comparison is not like-for-like on model capacity, which is the point.
+
+Reproduction scripts and the full per-window result files accompany the CSP paper.
 
 ## Install
 
@@ -91,6 +174,14 @@ thing and draws the full budget from the conformal component.
 ## Options — what each one does, and when to use it
 
 `ConformalSeasonalPool` exposes five behavioural knobs.
+
+> **v0.2.0 fixes a correctness bug on short series.** With `residual_mode="h_step"` (the
+> default) the per-horizon residual pool was drawn from the calibration window only, so it
+> *shrank* as the horizon grew and could starve to a single element — producing a 95%
+> interval of **width exactly 0.0** and **coverage exactly 0.0**. The pool now widens its
+> search before compromising the lag. Long-series results are unchanged (verified
+> bit-identical); short-series calibration improves substantially, e.g. `m3_yearly` mean
+> coverage 0.300 → 0.650. See `CHANGELOG.md`.
 
 > **Defaults changed in v0.1.4.** The defaults are now the **recommended, best-scoring
 > configuration** — `residual_mode="h_step"`, `decay_unit="step"`, `orientation=False` —
@@ -218,21 +309,30 @@ The suite (NumPy only) covers:
 
 ## Citation
 
-CSP is introduced in *Training-Free Probabilistic Time-Series Forecasting with
-Conformal Seasonal Pools* (V. Manokhin, 2026), arXiv:2605.03789 —
-<https://arxiv.org/abs/2605.03789>. If you use this package, please cite the paper:
+CSP is introduced in *Training-Free Probabilistic Time-Series Forecasting with Conformal
+Seasonal Pools* (V. Manokhin, 2026), **accepted at COPA 2026** and published in the
+**Proceedings of Machine Learning Research** (PMLR vol. 329, via JMLR).
+Preprint: arXiv:2605.03789 — <https://arxiv.org/abs/2605.03789>.
 
 ```bibtex
-@misc{manokhin2026csp,
-  title         = {Training-Free Probabilistic Time-Series Forecasting with Conformal Seasonal Pools},
-  author        = {Manokhin, Valery},
-  year          = {2026},
-  eprint        = {2605.03789},
+@inproceedings{manokhin2026csp,
+  title     = {Training-Free Probabilistic Time-Series Forecasting with Conformal Seasonal Pools},
+  author    = {Manokhin, Valery},
+  booktitle = {Proceedings of the Symposium on Conformal and Probabilistic Prediction
+               with Applications (COPA)},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {329},
+  year      = {2026},
+  publisher = {PMLR},
+  eprint    = {2605.03789},
   archivePrefix = {arXiv},
   primaryClass  = {stat.ML},
-  url           = {https://arxiv.org/abs/2605.03789}
+  url       = {https://arxiv.org/abs/2605.03789}
 }
 ```
+
+A practitioner-facing companion article is **forthcoming in *Foresight: The International
+Journal of Applied Forecasting***.
 
 A companion paper — *Report the Floor: A Training-Free Conformal Interval Is a
 Mandatory Baseline for Probabilistic Time-Series Forecasting* (arXiv:2606.09473) —

@@ -5,6 +5,69 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-07-27
+
+### Fixed
+
+- **`_residuals_lag` no longer starves, and no longer returns zero-width intervals.**
+  A correctness bug affecting `residual_mode="h_step"` (the default) on **short series**.
+
+  With `h_step` the residual lag grows as `L_h = m * ceil(h / m)`, but the pool was drawn
+  from the calibration window only — half the history by default — so the pool *shrank* as
+  the horizon grew. On short series it starved completely:
+
+  ```
+  m3_yearly:  m=1, H=6, |history|=14  ->  n_cal=7
+  residual pool size by horizon:  6, 5, 4, 3, 2, 1
+  ```
+
+  A one-element pool makes every predictive draw identical: the distribution collapses to a
+  point mass, the 95% interval has **width exactly 0.0**, and **coverage is exactly 0.0**.
+  Additionally, when the pool would have been empty the code silently fell back to
+  `np.diff(cal)` — *one-step* residuals used to size an H-step-ahead interval, which is far
+  too narrow, with no warning.
+
+  The pool is now built with three ordered fallbacks:
+
+  1. calibration window, if it yields at least `MIN_RESIDUALS` (8) residuals —
+     **pre-0.2.0 behaviour**, and the branch that always fires on long series;
+  2. otherwise the **full history at the same lag** — widen where we look before
+     compromising what we measure;
+  3. otherwise the longest usable lag `l < L`, rescaled by `sqrt(L / l)` (random-walk
+     scaling of multi-step error), and finally `sqrt(L)`-scaled one-step differences.
+
+  Measured on `m3_yearly`, interval width by horizon goes from
+  `404, 697, 819, 628, 224, 0.0` to `436, 825, 1072, 1091, 912, 933`, and mean coverage
+  from **0.300 to 0.650**.
+
+  **Long-series behaviour is unchanged by construction** — branch 1 always fires when the
+  history is long. Verified bit-identical on `electricity`, and statistically
+  indistinguishable across six long Tier-B datasets (paired Wilcoxon on
+  `|coverage - 0.95|`, p = 0.27, 780 windows).
+
+### Impact — evaluated on 249 dataset-runs / 235 datasets / 24,305 windows
+
+| metric | before | after |
+|---|--:|--:|
+| mean `\|coverage - 0.95\|` | 0.0715 | **0.0574** |
+| mean coverage | 0.8950 | **0.9094** |
+| MSIS | 29.78 | **28.58** |
+| log predictive density | −5.319 | **−5.172** |
+| PIT edge mass | 0.1438 | **0.1304** |
+| windows with zero-width intervals | 1.84% | **1.17%** |
+| datasets with coverage < 0.30 | 3 | **0** |
+| datasets with coverage < 0.50 | 9 | **1** |
+| scaled CRPS | **1.573** | 1.605 |
+
+Scaled CRPS is ~2% worse: widening starved intervals costs sharpness. Every other metric
+improves, and paired tests against the previous behaviour give p = 1.4e-66 on calibration
+and p = 1.8e-12 on MSIS.
+
+### Added
+
+- `ConformalSeasonalPool.MIN_RESIDUALS` (default 8) — class attribute controlling the
+  minimum residual-pool size before the widening fallbacks engage.
+
 ## [0.1.2] — 2026-06-13
 
 ### Fixed
