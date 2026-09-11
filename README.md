@@ -14,8 +14,7 @@ No training, no neural network, no learned parameters.
 ## Publication
 
 The CSP paper has been **accepted at COPA 2026** (Symposium on Conformal and Probabilistic
-Prediction with Applications) and will appear in the **Proceedings of Machine Learning Research**
-(PMLR, vol. 329), published through JMLR.
+Prediction with Applications).
 
 A companion article for practitioners is **forthcoming in *Foresight: The International Journal of
 Applied Forecasting***.
