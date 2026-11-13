@@ -134,6 +134,57 @@ roughly 2% of scaled CRPS for the calibration gains described in `CHANGELOG.md`.
 
 Reproduction scripts and the full per-window result files accompany the CSP paper.
 
+## CSP against Laplace (skaters)
+
+The `skaters` package says its Laplace forecaster "beats (almost) everything" and loses to CSP only
+"narrowly". That claim rests on a narrow test. We ran the comparison on the CSP benchmark; full
+details, data and code are in [`benchmarks/csp-vs-laplace`](benchmarks/csp-vs-laplace).
+
+| | `skaters` comparison | CSP benchmark comparison |
+|---|---|---|
+| Horizon | One step ahead only | Multi-step, 1 to 168 steps |
+| Data | 1,409 series in 4 collections: FRED economic change series and M4-Hourly, chosen by the Laplace author | 228 datasets across energy, transport, retail, web, finance, economics, health, weather and the M-competitions |
+| Metrics | CRPS and log-likelihood | CRPS, interval score, coverage, interval width, MASE, RMSSE, runtime |
+| Interval width and interval score | Not reported | Reported |
+| CSP version | 0.1.4 | 0.2.0 |
+| Result | Laplace wins 82 to 99% of FRED series, loses M4-Hourly | **CSP wins 60% of datasets by CRPS and 64% by interval score** |
+
+Results on 2,534 rolling-origin windows from 228 datasets, 95% intervals, identical history for
+both methods (`csp-forecaster` 0.2.0 and `skaters` 0.16.0, both at defaults):
+
+| Dataset-level result | CSP | Laplace |
+|---|---|---|
+| Datasets with the lower CRPS | **137 of 228 (60%)** | 91 (40%) |
+| Datasets with the lower interval score (MSIS and Winkler) | **147 of 228 (64%)** | 81 (36%) |
+| Datasets with the lower MASE | **128 of 228 (56%)** | 100 (44%) |
+| Datasets with the lower RMSSE | **120 of 228 (53%)** | 108 (47%) |
+| Median scaled CRPS | **0.824** | 0.960 |
+| Median scaled interval score | **10.12** | 11.68 |
+| Median scaled interval width | **6.54** | 9.40 |
+| Mean coverage at nominal 0.95 | 0.898 | **0.956** |
+| Datasets with coverage of 0.99 or more | 22 | 76 |
+| Time for all 2,534 forecasts | **1.9 s** | 14,664 s |
+
+- **Accuracy.** On a broad multi-step benchmark CSP is the more accurate method on about six
+  datasets in ten, by CRPS and by interval score, and on a majority by point accuracy.
+- **Interval width.** The `skaters` comparison does not report it. Laplace's intervals are 44%
+  wider than CSP's. Its average coverage is closer to 95%, and it over-covers (99% or more) on a
+  third of the datasets.
+- **Speed.** Laplace took about 7,700 times longer overall. It is 2,500 times slower per forecast at
+  horizons up to 12 and 23,800 times slower beyond 96 (107 seconds per forecast). Its cost grows so
+  fast with the horizon that only a tenth of the benchmark could be run, histories had to be
+  truncated, and the longest horizon (336) was not runnable in practice.
+- **Stability.** Laplace was numerically unstable on several datasets (bitcoin, CIF 2016, a
+  global-economy panel).
+- **Origin of Laplace's seasonal anchor.** The component was added in July 2026 after Laplace lost
+  M4-Hourly to CSP on 91% of series (per the `skaters` benchmark notes). It blends a
+  recency-weighted average of same-phase values with the seasonal-naive value in equal parts, the
+  structure of CSP's default sampler.
+
+Caveats: Laplace ran at defaults, on a subset, with a truncated warm-up, and without the seasonal
+period (it has built-in candidates for periods 7, 12 and 24). One run. The one-step FRED protocol
+of the `skaters` comparison was not re-run.
+
 ## Install
 
 Not on PyPI yet — install from GitHub:
