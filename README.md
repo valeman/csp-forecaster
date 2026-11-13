@@ -16,13 +16,8 @@ No training, no neural network, no learned parameters.
 The CSP paper has been **accepted at COPA 2026** (Symposium on Conformal and Probabilistic
 Prediction with Applications).
 
-A companion article for practitioners is **forthcoming in *Foresight: The International Journal of
-Applied Forecasting***.
-
-> Manokhin, V. (2026). *Training-Free Probabilistic Time-Series Forecasting with Conformal
-> Seasonal Pools.* Proceedings of Machine Learning Research, vol. 329 (COPA 2026).
-
-Please cite the paper if you use this package. See [`CITATION`](#citation) below.
+A companion paper is **published in *Foresight: The International Journal of Applied
+Forecasting*, Issue 2026:Q4**.
 
 ## Benchmark highlight — a training-free method that competes with tuned classical models
 
