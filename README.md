@@ -16,13 +16,8 @@ No training, no neural network, no learned parameters.
 The CSP paper has been **accepted at COPA 2026** (Symposium on Conformal and Probabilistic
 Prediction with Applications).
 
-A companion article for practitioners is **forthcoming in *Foresight: The International Journal of
-Applied Forecasting***.
-
-> Manokhin, V. (2026). *Training-Free Probabilistic Time-Series Forecasting with Conformal
-> Seasonal Pools.* Proceedings of Machine Learning Research, vol. 329 (COPA 2026).
-
-Please cite the paper if you use this package. See [`CITATION`](#citation) below.
+A companion paper is **published in *Foresight: The International Journal of Applied
+Forecasting*, Issue 2026:Q4**.
 
 ## Benchmark highlight — a training-free method that competes with tuned classical models
 
@@ -51,7 +46,7 @@ On the classic **AirPassengers** series, in a rolling-origin backtest against th
 4. **And this is a hard case for CSP.** AirPassengers is strongly trending — outside CSP's
    stable-level seasonal design domain, where the paper shows it beats the neural DeepNPTS baseline.
 
-Reproducible notebook: [`examples/airpassengers_intervals_comparison.ipynb`](examples/airpassengers_intervals_comparison.ipynb).
+Reproducible notebook: [`package/examples/airpassengers_intervals_comparison.ipynb`](package/examples/airpassengers_intervals_comparison.ipynb).
 
 ## Benchmark — v0.2.0 on 218 datasets
 
@@ -130,18 +125,69 @@ still **168× slower**.
 The lead is largest on the interval score and on calibration, and narrower on CRPS — CRPS averages
 over the whole predictive distribution and is forgiving of intervals that are sharp in the wrong
 place, while the Winkler score charges 2/α for every miss. Both are reported above. v0.2.0 trades
-roughly 2% of scaled CRPS for the calibration gains described in `CHANGELOG.md`.
+roughly 2% of scaled CRPS for the calibration gains described in `package/CHANGELOG.md`.
 
 Reproduction scripts and the full per-window result files accompany the CSP paper.
+
+## CSP against Laplace (skaters)
+
+The `skaters` package says its Laplace forecaster "beats (almost) everything" and loses to CSP only
+"narrowly". That claim rests on a narrow test. We ran the comparison on the CSP benchmark; full
+details, data and code are in [`package/benchmarks/csp-vs-laplace`](package/benchmarks/csp-vs-laplace).
+
+| | `skaters` comparison | CSP benchmark comparison |
+|---|---|---|
+| Horizon | One step ahead only | Multi-step, 1 to 168 steps |
+| Data | 1,409 series in 4 collections: FRED economic change series and M4-Hourly, chosen by the Laplace author | 228 datasets across energy, transport, retail, web, finance, economics, health, weather and the M-competitions |
+| Metrics | CRPS and log-likelihood | CRPS, interval score, coverage, interval width, MASE, RMSSE, runtime |
+| Interval width and interval score | Not reported | Reported |
+| CSP version | 0.1.4 | 0.2.0 |
+| Result | Laplace wins 82 to 99% of FRED series, loses M4-Hourly | **CSP wins 60% of datasets by CRPS and 64% by interval score** |
+
+Results on 2,534 rolling-origin windows from 228 datasets, 95% intervals, identical history for
+both methods (`csp-forecaster` 0.2.0 and `skaters` 0.16.0, both at defaults):
+
+| Dataset-level result | CSP | Laplace |
+|---|---|---|
+| Datasets with the lower CRPS | **137 of 228 (60%)** | 91 (40%) |
+| Datasets with the lower interval score (MSIS and Winkler) | **147 of 228 (64%)** | 81 (36%) |
+| Datasets with the lower MASE | **128 of 228 (56%)** | 100 (44%) |
+| Datasets with the lower RMSSE | **120 of 228 (53%)** | 108 (47%) |
+| Median scaled CRPS | **0.824** | 0.960 |
+| Median scaled interval score | **10.12** | 11.68 |
+| Median scaled interval width | **6.54** | 9.40 |
+| Mean coverage at nominal 0.95 | 0.898 | **0.956** |
+| Datasets with coverage of 0.99 or more | 22 | 76 |
+| Time for all 2,534 forecasts | **1.9 s** | 14,664 s |
+
+- **Accuracy.** On a broad multi-step benchmark CSP is the more accurate method on about six
+  datasets in ten, by CRPS and by interval score, and on a majority by point accuracy.
+- **Interval width.** The `skaters` comparison does not report it. Laplace's intervals are 44%
+  wider than CSP's. Its average coverage is closer to 95%, and it over-covers (99% or more) on a
+  third of the datasets.
+- **Speed.** Laplace took about 7,700 times longer overall. It is 2,500 times slower per forecast at
+  horizons up to 12 and 23,800 times slower beyond 96 (107 seconds per forecast). Its cost grows so
+  fast with the horizon that only a tenth of the benchmark could be run, histories had to be
+  truncated, and the longest horizon (336) was not runnable in practice.
+- **Stability.** Laplace was numerically unstable on several datasets (bitcoin, CIF 2016, a
+  global-economy panel).
+- **Origin of Laplace's seasonal anchor.** The component was added in July 2026 after Laplace lost
+  M4-Hourly to CSP on 91% of series (per the `skaters` benchmark notes). It blends a
+  recency-weighted average of same-phase values with the seasonal-naive value in equal parts, the
+  structure of CSP's default sampler.
+
+Caveats: Laplace ran at defaults, on a subset, with a truncated warm-up, and without the seasonal
+period (it has built-in candidates for periods 7, 12 and 24). One run. The one-step FRED protocol
+of the `skaters` comparison was not re-run.
 
 ## Install
 
 Not on PyPI yet — install from GitHub:
 
 ```bash
-pip install git+https://github.com/valeman/csp-forecaster.git
+pip install "git+https://github.com/valeman/csp-forecaster.git#subdirectory=package"
 # or, from a local clone, for development:
-#   pip install -e .
+#   pip install -e package
 # dependency: numpy only
 ```
 
@@ -192,7 +238,7 @@ thing and draws the full budget from the conformal component.
 > interval of **width exactly 0.0** and **coverage exactly 0.0**. The pool now widens its
 > search before compromising the lag. Long-series results are unchanged (verified
 > bit-identical); short-series calibration improves substantially, e.g. `m3_yearly` mean
-> coverage 0.300 → 0.650. See `CHANGELOG.md`.
+> coverage 0.300 → 0.650. See `package/CHANGELOG.md`.
 
 > **Defaults changed in v0.1.4.** The defaults are now the **recommended, best-scoring
 > configuration** — `residual_mode="h_step"`, `decay_unit="step"`, `orientation=False` —
@@ -308,6 +354,7 @@ the CSP samples; `mean` is the per-horizon sample mean.
 ## Tests
 
 ```bash
+cd package
 pip install -e ".[test]"
 pytest -q
 ```
