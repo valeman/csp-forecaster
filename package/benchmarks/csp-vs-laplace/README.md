@@ -150,7 +150,7 @@ centred on the seasonal-naive forecast.
 ## Reproduce
 
 ```bash
-pip install csp-forecaster==0.2.0 skaters==0.16.0 numpy pandas scipy
+pip install "git+https://github.com/valeman/csp-forecaster.git#subdirectory=package" skaters==0.16.0 numpy pandas scipy
 # windows_<tier>/<dataset>.npz are the rolling-origin window caches of the CSP paper
 python run_comparison.py --windows-root /path/to/windows --selection selected_windows.csv --out per_window_metrics.csv
 python summarize.py

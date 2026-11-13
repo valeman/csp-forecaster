@@ -46,7 +46,7 @@ On the classic **AirPassengers** series, in a rolling-origin backtest against th
 4. **And this is a hard case for CSP.** AirPassengers is strongly trending — outside CSP's
    stable-level seasonal design domain, where the paper shows it beats the neural DeepNPTS baseline.
 
-Reproducible notebook: [`examples/airpassengers_intervals_comparison.ipynb`](examples/airpassengers_intervals_comparison.ipynb).
+Reproducible notebook: [`package/examples/airpassengers_intervals_comparison.ipynb`](package/examples/airpassengers_intervals_comparison.ipynb).
 
 ## Benchmark — v0.2.0 on 218 datasets
 
@@ -125,7 +125,7 @@ still **168× slower**.
 The lead is largest on the interval score and on calibration, and narrower on CRPS — CRPS averages
 over the whole predictive distribution and is forgiving of intervals that are sharp in the wrong
 place, while the Winkler score charges 2/α for every miss. Both are reported above. v0.2.0 trades
-roughly 2% of scaled CRPS for the calibration gains described in `CHANGELOG.md`.
+roughly 2% of scaled CRPS for the calibration gains described in `package/CHANGELOG.md`.
 
 Reproduction scripts and the full per-window result files accompany the CSP paper.
 
@@ -133,7 +133,7 @@ Reproduction scripts and the full per-window result files accompany the CSP pape
 
 The `skaters` package says its Laplace forecaster "beats (almost) everything" and loses to CSP only
 "narrowly". That claim rests on a narrow test. We ran the comparison on the CSP benchmark; full
-details, data and code are in [`benchmarks/csp-vs-laplace`](benchmarks/csp-vs-laplace).
+details, data and code are in [`package/benchmarks/csp-vs-laplace`](package/benchmarks/csp-vs-laplace).
 
 | | `skaters` comparison | CSP benchmark comparison |
 |---|---|---|
@@ -185,9 +185,9 @@ of the `skaters` comparison was not re-run.
 Not on PyPI yet — install from GitHub:
 
 ```bash
-pip install git+https://github.com/valeman/csp-forecaster.git
+pip install "git+https://github.com/valeman/csp-forecaster.git#subdirectory=package"
 # or, from a local clone, for development:
-#   pip install -e .
+#   pip install -e package
 # dependency: numpy only
 ```
 
@@ -238,7 +238,7 @@ thing and draws the full budget from the conformal component.
 > interval of **width exactly 0.0** and **coverage exactly 0.0**. The pool now widens its
 > search before compromising the lag. Long-series results are unchanged (verified
 > bit-identical); short-series calibration improves substantially, e.g. `m3_yearly` mean
-> coverage 0.300 → 0.650. See `CHANGELOG.md`.
+> coverage 0.300 → 0.650. See `package/CHANGELOG.md`.
 
 > **Defaults changed in v0.1.4.** The defaults are now the **recommended, best-scoring
 > configuration** — `residual_mode="h_step"`, `decay_unit="step"`, `orientation=False` —
@@ -354,6 +354,7 @@ the CSP samples; `mean` is the per-horizon sample mean.
 ## Tests
 
 ```bash
+cd package
 pip install -e ".[test]"
 pytest -q
 ```
