@@ -197,6 +197,11 @@ class ConformalSeasonalPool:
 
         Use ``"cycle"`` (with ``residual_mode="paper"``, ``orientation=False``,
         ``mode="legacy"``) to reproduce the published paper numbers exactly.
+    short_history_guard : bool, default True
+        When the history is shorter than one seasonal period, forecast with
+        no seasonal period.  The period passed to ``fit`` is kept in
+        ``seasonal_period_given_``; ``short_history_guard_active_`` says
+        whether the guard fired.  Ignored in ``mode="legacy"``.
     season_selection : {"given", "backtest"}, default "given"
         ``"given"`` uses the seasonal period passed to ``fit`` as is.
         ``"backtest"`` compares that period with no seasonal period on the
@@ -228,6 +233,7 @@ class ConformalSeasonalPool:
         random_state: "int | np.random.Generator | None" = None,
         season_selection: str = "given",
         backtest_folds: int = 3,
+        short_history_guard: bool = True,
     ):
         if season_selection not in ("given", "backtest"):
             raise ValueError(f"season_selection must be 'given' or 'backtest', got {season_selection!r}")
@@ -247,6 +253,7 @@ class ConformalSeasonalPool:
         self.decay_unit = decay_unit
         self.season_selection = season_selection
         self.backtest_folds = int(backtest_folds)
+        self.short_history_guard = bool(short_history_guard)
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
         self.seasonal_period_given_: int = 1
@@ -263,6 +270,18 @@ class ConformalSeasonalPool:
         self.history = np.asarray(history, dtype=np.float64).ravel()
         self.seasonal_period = max(1, seasonal_period)
         self.seasonal_period_given_ = self.seasonal_period
+        # A season that has not been observed once cannot be used: with fewer
+        # points than one seasonal period there is no earlier value at the
+        # same phase to pool or to anchor on.  Fall back to no season.
+        # (Not applied in mode="legacy", which reproduces the paper bit for bit.)
+        self.short_history_guard_active_ = bool(
+            self.short_history_guard
+            and self.mode != "legacy"
+            and self.seasonal_period > 1
+            and len(self.history) < self.seasonal_period
+        )
+        if self.short_history_guard_active_:
+            self.seasonal_period = 1
         self.seasonal_period_used_ = self.seasonal_period
         self._season_cache = {}
         return self
@@ -278,7 +297,7 @@ class ConformalSeasonalPool:
         when the series simply has no such cycle; in both cases the
         non-seasonal model wins the back-test.  Ties keep the given season.
         """
-        m = self.seasonal_period_given_
+        m = 1 if self.short_history_guard_active_ else self.seasonal_period_given_
         if m <= 1:
             return m
         key = (int(H), round(float(alpha), 6))
@@ -298,7 +317,7 @@ class ConformalSeasonalPool:
                     cal_fraction=self.cal_fraction, adaptive=self.adaptive,
                     mode="fast", residual_mode=self.residual_mode,
                     orientation=self.orientation, decay_unit=self.decay_unit,
-                    random_state=0,
+                    random_state=0, short_history_guard=self.short_history_guard,
                 )
                 try:
                     r = sub.fit(train, mm).predict(H=H, alpha=alpha, n_samples=100)

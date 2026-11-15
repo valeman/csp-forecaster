@@ -318,6 +318,8 @@ recommended general config — best CRPS, best Winkler, sharpest intervals, cali
 | **General use (recommended)** | **defaults** |
 | Reproduce the paper exactly | `mode="legacy", residual_mode="paper", decay_unit="cycle", orientation=False` |
 | Maximise nominal coverage (accept wider intervals) | defaults + `orientation=True` |
+| Seasonal period may be wrong for the series (e.g. wind output with a nominal daily period) | defaults + `season_selection="backtest"` |
+| History shorter than one seasonal period | nothing to set: the default `short_history_guard=True` forecasts with no season in that case |
 
 ```python
 # Recommended (this is the default):

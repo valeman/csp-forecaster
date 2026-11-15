@@ -7,6 +7,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Short-history guard, on by default (`short_history_guard=True`).** When the history holds
+  fewer points than one seasonal period, CSP forecasts with no seasonal period. A season that
+  has not been observed once gives no earlier value at the same phase to pool or to anchor on;
+  before this change CSP still centred on such phases and kept a flat interval width across
+  steps. The period passed to `fit` is kept in `seasonal_period_given_`, and
+  `short_history_guard_active_` reports whether the guard fired. Not applied in
+  `mode="legacy"`, which still reproduces the paper bit for bit. Set
+  `short_history_guard=False` for the previous behaviour.
+
+  Measured (95% intervals; one-minute data with a daily period and 720 to 816 points of
+  history, 18 windows per dataset; Winkler score in the series' units):
+
+  | Data | Winkler | Coverage |
+  |---|---|---|
+  | Residential load | 191.3 → 28.7 | 39.4% → 91.9% |
+  | Residential solar | 247.7 → 10.8 | 35.8% → 88.3% |
+  | Wind farms | 141.0 → 11.4 | 72.5% → 97.9% |
+
+  Where the history holds at least one period nothing changes: on the 232-dataset paper
+  corpus (24,502 windows) the guard is active in 3 windows and alters 2 datasets' scores; on
+  36 further datasets (1,341 windows) it is never active. No extra run time.
+
 ### Added
 
 - **`season_selection="backtest"`** (default `"given"`, so existing behaviour is unchanged).
