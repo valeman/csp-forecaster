@@ -197,6 +197,16 @@ class ConformalSeasonalPool:
 
         Use ``"cycle"`` (with ``residual_mode="paper"``, ``orientation=False``,
         ``mode="legacy"``) to reproduce the published paper numbers exactly.
+    season_selection : {"given", "backtest"}, default "given"
+        ``"given"`` uses the seasonal period passed to ``fit`` as is.
+        ``"backtest"`` compares that period with no seasonal period on the
+        last ``backtest_folds`` horizon-length stretches of the history and
+        uses the one with the lower Winkler score.  Useful when the nominal
+        period may be wrong for the series or the history holds only a few
+        cycles (for example one-minute data with a daily period).  The period
+        actually used is in ``seasonal_period_used_`` after ``predict``.
+    backtest_folds : int, default 3
+        Number of back-test stretches for ``season_selection="backtest"``.
     random_state : int | np.random.Generator | None
         Seed/generator for ``mode="fast"``. Ignored by ``mode="legacy"`` (which
         uses the global NumPy RNG for bit-exact reproduction of the paper).
@@ -216,7 +226,11 @@ class ConformalSeasonalPool:
         orientation: bool = False,
         decay_unit: str = "step",
         random_state: "int | np.random.Generator | None" = None,
+        season_selection: str = "given",
+        backtest_folds: int = 3,
     ):
+        if season_selection not in ("given", "backtest"):
+            raise ValueError(f"season_selection must be 'given' or 'backtest', got {season_selection!r}")
         if mode not in ("fast", "legacy"):
             raise ValueError(f"mode must be 'fast' or 'legacy', got {mode!r}")
         if residual_mode not in ("paper", "h_step"):
@@ -231,8 +245,13 @@ class ConformalSeasonalPool:
         self.residual_mode = residual_mode
         self.orientation = bool(orientation)
         self.decay_unit = decay_unit
+        self.season_selection = season_selection
+        self.backtest_folds = int(backtest_folds)
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
+        self.seasonal_period_given_: int = 1
+        self.seasonal_period_used_: int = 1
+        self._season_cache: dict = {}
         self.name = "CSP-Adaptive" if adaptive else "CSP-Fixed"
         if isinstance(random_state, np.random.Generator):
             self._rng = random_state
@@ -243,7 +262,58 @@ class ConformalSeasonalPool:
     def fit(self, history: ArrayLike, seasonal_period: int = 1) -> "ConformalSeasonalPool":
         self.history = np.asarray(history, dtype=np.float64).ravel()
         self.seasonal_period = max(1, seasonal_period)
+        self.seasonal_period_given_ = self.seasonal_period
+        self.seasonal_period_used_ = self.seasonal_period
+        self._season_cache = {}
         return self
+
+    # ------------------------------------------------ season by back-test
+    def _select_season(self, H: int, alpha: float) -> int:
+        """Choose between the given seasonal period and none.
+
+        Both are run on the last ``backtest_folds`` horizon-length stretches
+        of the history, each forecast from the data before it, and the one
+        with the lower mean Winkler interval score is kept.  A nominal season
+        is wrong when the history holds too few cycles to pool by phase or
+        when the series simply has no such cycle; in both cases the
+        non-seasonal model wins the back-test.  Ties keep the given season.
+        """
+        m = self.seasonal_period_given_
+        if m <= 1:
+            return m
+        key = (int(H), round(float(alpha), 6))
+        if key in self._season_cache:
+            return self._season_cache[key]
+        y = self.history
+        score = {m: 0.0, 1: 0.0}
+        folds = 0
+        for j in range(max(1, self.backtest_folds)):
+            end = len(y) - j * H
+            if end - H < max(3 * H, 30):
+                break
+            train, valid = y[: end - H], y[end - H : end]
+            for mm in score:
+                sub = ConformalSeasonalPool(
+                    pool_weight=self.pool_weight, exp_lambda=self.exp_lambda,
+                    cal_fraction=self.cal_fraction, adaptive=self.adaptive,
+                    mode="fast", residual_mode=self.residual_mode,
+                    orientation=self.orientation, decay_unit=self.decay_unit,
+                    random_state=0,
+                )
+                try:
+                    r = sub.fit(train, mm).predict(H=H, alpha=alpha, n_samples=100)
+                    lo, up = np.asarray(r.lower), np.asarray(r.upper)
+                    score[mm] += float(np.mean(
+                        (up - lo)
+                        + (2.0 / alpha) * np.maximum(lo - valid, 0.0)
+                        + (2.0 / alpha) * np.maximum(valid - up, 0.0)
+                    ))
+                except Exception:
+                    score[mm] += np.inf
+            folds += 1
+        chosen = 1 if (folds > 0 and score[1] < score[m]) else m
+        self._season_cache[key] = chosen
+        return chosen
 
     # ----------------------------------------------------------- shared math
     def _effective_pool_weight(self) -> float:
@@ -367,6 +437,9 @@ class ConformalSeasonalPool:
             raise RuntimeError("call fit() before predict()")
         if quantile_levels is None:
             quantile_levels = DEFAULT_QUANTILE_LEVELS
+        if self.season_selection == "backtest":
+            self.seasonal_period = self._select_season(H, alpha)
+        self.seasonal_period_used_ = self.seasonal_period
         if self.mode == "legacy":
             return self._predict_legacy(H, alpha, quantile_levels, n_samples)
         return self._predict_fast(H, alpha, quantile_levels, n_samples)

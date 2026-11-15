@@ -5,6 +5,35 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`season_selection="backtest"`** (default `"given"`, so existing behaviour is unchanged).
+  CSP compares the seasonal period passed to `fit` with no seasonal period on the last
+  `backtest_folds` (default 3) horizon-length stretches of the history and uses the one with the
+  lower Winkler score. The period used is exposed as `seasonal_period_used_`.
+
+  Why: a nominal period can be wrong for a series (wind output has no usable daily cycle) or too
+  thinly observed (one-minute data with a daily period and under three days of history). In both
+  cases CSP centres its forecast on the same phase of earlier cycles and misses badly at the first
+  steps.
+
+  Measured (95% intervals, same windows for both settings):
+
+  | Data | Windows | Coverage | Interval score (MSIS) | CRPS |
+  |---|---:|---|---|---|
+  | One-minute wind power, random origins | 120 | 91.2% → 95.8% | −52% | −60% |
+  | One-minute solar power, random origins | 112 | 80.8% → 88.7% | −57% | −56% |
+  | Ten-minute wind power | 59 | 75.3% → 83.6% | −36% | −60% |
+  | 36 datasets not used in development | 1,341 | 87.7% → 87.1% | −10% (geometric mean) | −10% |
+  | Paper corpus, 232 datasets | 24,502 | 91.3% → 90.7% | −1.6% (geometric mean); better on 93 datasets, worse on 137 | −2.3%; better on 104, worse on 128 |
+
+  It is an option and not the default because on the paper corpus it loses slightly on more
+  datasets than it wins and lowers coverage by 0.6 points: where the given period is right, the
+  back-test occasionally drops it. Cost: about five times the run time of a plain forecast
+  (still milliseconds).
+
 ## [0.2.0] — 2026-07-27
 
 ### Fixed
