@@ -5,6 +5,59 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Short-history guard, on by default (`short_history_guard=True`).** When the history holds
+  fewer points than one seasonal period, CSP forecasts with no seasonal period. A season that
+  has not been observed once gives no earlier value at the same phase to pool or to anchor on;
+  before this change CSP still centred on such phases and kept a flat interval width across
+  steps. The period passed to `fit` is kept in `seasonal_period_given_`, and
+  `short_history_guard_active_` reports whether the guard fired. Not applied in
+  `mode="legacy"`, which still reproduces the paper bit for bit. Set
+  `short_history_guard=False` for the previous behaviour.
+
+  Measured (95% intervals; one-minute data with a daily period and 720 to 816 points of
+  history, 18 windows per dataset; Winkler score in the series' units):
+
+  | Data | Winkler | Coverage |
+  |---|---|---|
+  | Residential load | 191.3 → 28.7 | 39.4% → 91.9% |
+  | Residential solar | 247.7 → 10.8 | 35.8% → 88.3% |
+  | Wind farms | 141.0 → 11.4 | 72.5% → 97.9% |
+
+  Where the history holds at least one period nothing changes: on the 232-dataset paper
+  corpus (24,502 windows) the guard is active in 3 windows and alters 2 datasets' scores; on
+  36 further datasets (1,341 windows) it is never active. No extra run time.
+
+### Added
+
+- **`season_selection="backtest"`** (default `"given"`, so existing behaviour is unchanged).
+  CSP compares the seasonal period passed to `fit` with no seasonal period on the last
+  `backtest_folds` (default 3) horizon-length stretches of the history and uses the one with the
+  lower Winkler score. The period used is exposed as `seasonal_period_used_`.
+
+  Why: a nominal period can be wrong for a series (wind output has no usable daily cycle) or too
+  thinly observed (one-minute data with a daily period and under three days of history). In both
+  cases CSP centres its forecast on the same phase of earlier cycles and misses badly at the first
+  steps.
+
+  Measured (95% intervals, same windows for both settings):
+
+  | Data | Windows | Coverage | Interval score (MSIS) | CRPS |
+  |---|---:|---|---|---|
+  | One-minute wind power, random origins | 120 | 91.2% → 95.8% | −52% | −60% |
+  | One-minute solar power, random origins | 112 | 80.8% → 88.7% | −57% | −56% |
+  | Ten-minute wind power | 59 | 75.3% → 83.6% | −36% | −60% |
+  | 36 datasets not used in development | 1,341 | 87.7% → 87.1% | −10% (geometric mean) | −10% |
+  | Paper corpus, 232 datasets | 24,502 | 91.3% → 90.7% | −1.6% (geometric mean); better on 93 datasets, worse on 137 | −2.3%; better on 104, worse on 128 |
+
+  It is an option and not the default because on the paper corpus it loses slightly on more
+  datasets than it wins and lowers coverage by 0.6 points: where the given period is right, the
+  back-test occasionally drops it. Cost: about five times the run time of a plain forecast
+  (still milliseconds).
+
 ## [0.2.0] — 2026-07-27
 
 ### Fixed
