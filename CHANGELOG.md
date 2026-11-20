@@ -5,6 +5,36 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-11-20
+
+### Fixed
+
+- **`mode="fast"` (the default) now returns float64 samples; it returned float32.**
+  The history is float64 and `mode="legacy"` always sampled in float64, but the fast
+  path allocated its sample matrix as float32, so every draw — and therefore every
+  interval bound and quantile — was rounded to about seven significant digits. Two
+  consequences, both reproduced on v0.2.0:
+
+  - **False misses on flat and exactly periodic series.** When every draw is the same
+    value and that value is not exactly representable in float32 (`0.1`, `1234567.891`),
+    the degenerate interval sat on the *rounded* value and excluded the true one by
+    ~1e-9: empirical coverage 0.0 instead of 1.0. Values exact in float32 (`0.0`, `5.0`)
+    were unaffected.
+  - **Interval collapse on large-level, low-noise series.** Once the level exceeds
+    roughly 1e7 times the noise scale, float32 cannot represent the predictive spread
+    at all (its spacing is 8 at 1e8 and 64 at 1e9), so the interval collapsed to a
+    single point — a real loss of coverage, not a rounding artefact.
+
+  Both modes now sample in float64. Memory for the sample matrix doubles
+  (`H × n_samples × 8` bytes — 77 kB at H=48, 200 samples). On series at ordinary
+  scales, bounds move only in the seventh significant digit.
+
+### Changed
+
+- `test_fast_samples_are_float32` (which pinned the old dtype) is replaced by
+  `test_fast_samples_are_float64`; `tests/test_float_precision.py` adds regression
+  tests for the flat, exactly periodic and large-level cases in both modes.
+
 ## [0.2.0] — 2026-07-27
 
 ### Fixed

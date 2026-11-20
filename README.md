@@ -168,7 +168,7 @@ result.quantiles    # {tau: (H,)} for the M5 quantile levels
 | `mode` | RNG | Speed | Use when |
 |---|---|---|---|
 | `"legacy"` | global NumPy RNG | reference | Reproducing the published per-window numbers **bit-exactly** |
-| `"fast"` | explicit seeded `Generator` | ~1.2× faster, vectorized quantiles, float32 samples, reproducible | Everything else |
+| `"fast"` | explicit seeded `Generator` | ~1.2× faster, vectorized quantiles, float64 samples, reproducible | Everything else |
 
 The paths build the **same** residual/pool construction and target the same
 predictive distribution. They are **not** bit-identical: vectorized draws differ
@@ -211,7 +211,7 @@ constant pool weight regardless of history depth.
 ### `mode` ({"fast", "legacy"}, default `"fast"`)
 
 Implementation path, *not* a modelling choice. `"fast"` is vectorized with a seeded
-generator (reproducible, float32 samples); `"legacy"` is the original per-horizon loop on
+generator (reproducible, float64 samples); `"legacy"` is the original per-horizon loop on
 the global RNG and is **bit-exact** with the published code. Use `"legacy"` only to
 reproduce paper numbers exactly; `"fast"` otherwise.
 

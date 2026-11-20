@@ -29,9 +29,11 @@ def test_predict_produces_valid_output(mode, adaptive):
     assert r.method == ("CSP-Adaptive" if adaptive else "CSP-Fixed")
 
 
-def test_fast_samples_are_float32():
+def test_fast_samples_are_float64():
+    # float32 samples rounded away the predictive spread on flat and large-level
+    # series (see tests/test_float_precision.py); both modes now return float64.
     r = ConformalSeasonalPool(mode="fast", random_state=0).fit(_series(), 24).predict(12, n_samples=50)
-    assert r.samples.dtype == np.float32
+    assert r.samples.dtype == np.float64
 
 
 def test_handles_non_seasonal_series():

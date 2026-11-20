@@ -454,7 +454,11 @@ class ConformalSeasonalPool:
                 else:
                     phase_cache[pos] = (np.empty(0), None)
 
-        samples = np.empty((H, n_samples), dtype=np.float32)
+        # float64, matching the history and the legacy path. float32 here silently
+        # rounded every draw: on flat / exactly periodic series the interval collapsed
+        # onto the rounded value (false misses), and on large-level low-noise series
+        # (level/noise >~ 1e7) the predictive spread vanished altogether.
+        samples = np.empty((H, n_samples), dtype=np.float64)
         for h in range(H):
             np_h, nc_h = n_pool, n_samples - n_pool
             parts = []
