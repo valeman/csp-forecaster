@@ -48,7 +48,7 @@ class CSPModel:
 
     def __init__(
         self,
-        season_length: int = 1,
+        season_length: "int | str" = 1,
         pool_weight: float = 0.5,
         exp_lambda: float = 0.01,
         cal_fraction: float = 0.5,
@@ -60,7 +60,16 @@ class CSPModel:
         n_samples: int = 100,
         alias: str = "CSP",
         random_state: "int | None" = None,
+        season_candidates: "Optional[List[int]]" = None,
+        selection_horizon: int = 1,
     ):
+        # season_length="auto": the period is chosen per series among
+        # season_candidates (ConformalSeasonalPool.select_seasonal_period).
+        # forecast() chooses for its own h; fit() chooses for selection_horizon.
+        if season_length == "auto" and not season_candidates:
+            raise ValueError("season_length='auto' needs season_candidates, e.g. [1, 24, 168]")
+        self.season_candidates = list(season_candidates) if season_candidates else None
+        self.selection_horizon = selection_horizon
         self.season_length = season_length
         self.pool_weight = pool_weight
         self.exp_lambda = exp_lambda
@@ -90,6 +99,8 @@ class CSPModel:
             n_samples=self.n_samples,
             alias=self.alias,
             random_state=self.random_state,
+            season_candidates=self.season_candidates,
+            selection_horizon=self.selection_horizon,
         )
 
     def __repr__(self) -> str:
@@ -140,10 +151,13 @@ class CSPModel:
                 out[f"hi-{lv}"] = hi
         return out
 
-    def _insample(self, y: np.ndarray, level: Optional[List[int]]) -> Dict[str, np.ndarray]:
+    def _insample(self, y: np.ndarray, level: Optional[List[int]],
+                  m: Optional[int] = None) -> Dict[str, np.ndarray]:
         """Seasonal-naive in-sample fitted values + constant-width conformal bands."""
         yv = np.asarray(y, dtype=float).ravel()
-        n, m = yv.size, self.season_length
+        n = yv.size
+        if m is None:
+            m = self.season_length
         fitted = np.full(n, np.nan)
         if n > m:
             fitted[m:] = yv[:-m]
@@ -164,7 +178,10 @@ class CSPModel:
 
     # --------------------------------------------------------- protocol API
     def fit(self, y: np.ndarray, X: Optional[np.ndarray] = None) -> "CSPModel":
-        self.model_ = self._make().fit(np.asarray(y, dtype=float).ravel(), self.season_length)
+        self.model_ = self._make().fit(
+            np.asarray(y, dtype=float).ravel(), self.season_length,
+            candidates=self.season_candidates, horizon=self.selection_horizon,
+        )
         return self
 
     def predict(
@@ -189,15 +206,16 @@ class CSPModel:
     ) -> Dict[str, np.ndarray]:
         """One-shot fit-then-predict (the method StatsForecast.forecast calls)."""
         yv = np.asarray(y, dtype=float).ravel()
-        model = self._make().fit(yv, self.season_length)
+        model = self._make().fit(yv, self.season_length,
+                                 candidates=self.season_candidates, horizon=h)
         res = model.predict(h, alpha=0.05, n_samples=self.n_samples)
         out = self._result_dict(res.samples, level)
         if fitted:
-            out.update(self._insample(yv, level))
+            out.update(self._insample(yv, level, model.seasonal_period))
         return out
 
     def predict_in_sample(self, level: Optional[List[int]] = None) -> Dict[str, np.ndarray]:
         """In-sample (fitted) values for the fitted model."""
         if not hasattr(self, "model_"):
             raise RuntimeError("call fit() before predict_in_sample()")
-        return self._insample(self.model_.history, level)
+        return self._insample(self.model_.history, level, self.model_.seasonal_period)

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import os as _os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -233,6 +233,7 @@ class ConformalSeasonalPool:
         self.decay_unit = decay_unit
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
+        self.season_scores_: Dict[int, float] = {}
         self.name = "CSP-Adaptive" if adaptive else "CSP-Fixed"
         if isinstance(random_state, np.random.Generator):
             self._rng = random_state
@@ -240,10 +241,113 @@ class ConformalSeasonalPool:
             self._rng = np.random.default_rng(random_state)
 
     # ------------------------------------------------------------------ fit
-    def fit(self, history: ArrayLike, seasonal_period: int = 1) -> "ConformalSeasonalPool":
+    def fit(
+        self,
+        history: ArrayLike,
+        seasonal_period: "int | str" = 1,
+        candidates: Optional[Sequence[int]] = None,
+        horizon: int = 1,
+    ) -> "ConformalSeasonalPool":
+        """Store the history and the seasonal period.
+
+        ``seasonal_period="auto"`` chooses the period among ``candidates`` on the
+        history itself (see :meth:`select_seasonal_period`); ``horizon`` is the
+        forecast horizon the choice is made for. With an integer period the
+        behaviour is unchanged and ``candidates`` / ``horizon`` are ignored.
+        """
         self.history = np.asarray(history, dtype=np.float64).ravel()
-        self.seasonal_period = max(1, seasonal_period)
+        self.season_scores_ = {}
+        if isinstance(seasonal_period, str):
+            if seasonal_period != "auto":
+                raise ValueError(
+                    f"seasonal_period must be an integer or 'auto', got {seasonal_period!r}")
+            if candidates is None:
+                raise ValueError(
+                    "seasonal_period='auto' needs candidates, e.g. candidates=[1, 60, 1440]")
+            seasonal_period = self.select_seasonal_period(self.history, candidates, horizon)
+        self.seasonal_period = max(1, int(seasonal_period))
         return self
+
+    # ------------------------------------------------------ season selection
+    #: Central-interval levels of the weighted interval score used for selection.
+    _SELECT_ALPHAS = (0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+    def select_seasonal_period(
+        self,
+        history: ArrayLike,
+        candidates: Sequence[int],
+        horizon: int = 1,
+        val_fraction: float = 0.2,
+        max_val: int = 1000,
+        max_origins: int = 200,
+        n_samples: int = 200,
+    ) -> int:
+        """Choose the seasonal period among ``candidates`` by out-of-sample score.
+
+        Why: the period a series is *declared* to have (1440 for minute data, 288
+        for 5-minute data) is not always the period that forecasts it best. With
+        ``m > 1`` every draw is built from the value(s) one or more seasons ago and
+        the last observed value is not used, so at short horizons a long period is
+        only right when the series repeats closely from one season to the next.
+        On a random walk sampled every minute, ``m=1`` is far sharper.
+
+        How: the last ``val_fraction`` of ``history`` (at most ``max_val`` points)
+        is held back. From up to ``max_origins`` evenly spaced forecast origins in
+        that tail, each candidate forecasts ``horizon`` steps from the data before
+        the origin, and is scored by the weighted interval score (11 central
+        intervals from 10% to 98% plus the median) against what followed. The
+        candidate with the lowest mean score wins; ties go to the shorter period.
+        Only ``history`` is used, so nothing after it can leak into the choice.
+
+        The model's own options (``pool_weight``, ``exp_lambda``, ``residual_mode``,
+        ...) are used for the trial forecasts, in ``mode="fast"`` with a fixed
+        private seed, so the choice is deterministic and does not consume this
+        model's random stream.
+
+        Candidates longer than half of the data before the validation tail are
+        skipped. If the history is too short to validate (fewer than 5 origins),
+        the longest candidate with at least three full cycles is returned, else 1.
+
+        The per-candidate scores are stored in ``season_scores_``.
+        """
+        y = np.asarray(history, dtype=np.float64).ravel()
+        T = len(y)
+        H = max(1, int(horizon))
+        cands = sorted({max(1, int(c)) for c in candidates})
+        if not cands:
+            raise ValueError("candidates must contain at least one period")
+        v = int(min(max_val, T * val_fraction))
+        first = T - v                              # first forecast origin
+        usable = [c for c in cands if c <= first // 2]
+        origins = np.arange(first, T - H + 1)
+        if len(origins) > max_origins:
+            origins = origins[np.linspace(0, len(origins) - 1, max_origins).round().astype(int)]
+        self.season_scores_ = {}
+        if len(origins) < 5 or not usable:
+            ok = [c for c in cands if T >= 3 * c]
+            return max(ok) if ok else 1
+        alphas = self._SELECT_ALPHAS
+        levels = sorted({0.5, *[a / 2 for a in alphas], *[1 - a / 2 for a in alphas]})
+        for c in usable:
+            trial = ConformalSeasonalPool(
+                pool_weight=self.pool_weight, exp_lambda=self.exp_lambda,
+                cal_fraction=self.cal_fraction, adaptive=self.adaptive, mode="fast",
+                residual_mode=self.residual_mode, orientation=self.orientation,
+                decay_unit=self.decay_unit, random_state=0,
+            )
+            total = 0.0
+            for t0 in origins:
+                trial.history = y[:t0]
+                trial.seasonal_period = c
+                q = trial._predict_fast(H, 0.05, levels, n_samples).quantiles
+                actual = y[t0:t0 + H]
+                s = 0.5 * np.abs(actual - q[0.5])
+                for a in alphas:
+                    lo, hi = q[a / 2], q[1 - a / 2]
+                    s = s + a / 2 * (hi - lo) + np.maximum(lo - actual, 0) + np.maximum(actual - hi, 0)
+                total += float(np.mean(s)) / (len(alphas) + 0.5)
+            self.season_scores_[c] = total / len(origins)
+        return min(usable, key=lambda c: (self.season_scores_[c], c))
 
     # ----------------------------------------------------------- shared math
     def _effective_pool_weight(self) -> float:
