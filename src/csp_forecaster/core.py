@@ -308,7 +308,6 @@ class ConformalSeasonalPool:
         candidates: Optional[Sequence[int]] = None,
         horizon: int = 1,
         freq: Optional[str] = None,
-        search: str = "candidates",
     ) -> "ConformalSeasonalPool":
         """Store the history and the seasonal period.
 
@@ -333,8 +332,7 @@ class ConformalSeasonalPool:
                     "or candidates=[1, 60, 1440]")
             candidates = [*(seasonal_candidates(freq) if freq is not None else []),
                           *(candidates or [])]
-            seasonal_period = self.select_seasonal_period(
-                self.history, candidates, horizon, search=search)
+            seasonal_period = self.select_seasonal_period(self.history, candidates, horizon)
         self.seasonal_period = max(1, int(seasonal_period))
         return self
 
@@ -351,9 +349,6 @@ class ConformalSeasonalPool:
         max_val: int = 1000,
         max_origins: int = 200,
         n_samples: int = 200,
-        search: str = "candidates",
-        max_steps: int = 10,
-        min_gain: float = 0.02,
     ) -> int:
         """Choose the seasonal period among ``candidates`` by out-of-sample score.
 
@@ -381,18 +376,8 @@ class ConformalSeasonalPool:
         skipped. If the history is too short to validate (fewer than 5 origins),
         the longest candidate with at least three full cycles is returned, else 1.
 
-        ``search="stepwise"`` (experimental) goes on from every candidate above 1
-        in the manner of a stepwise order search: it scores the neighbouring
-        periods (``m - 1``, ``m + 1``, ``m / 2`` when even, ``2 m``), moves to the
-        best of them if it beats the current score by more than ``min_gain`` (2%),
-        and repeats until nothing improves or ``max_steps`` moves were made. A
-        period found this way is kept only if it beats the best listed candidate
-        by the same margin.
-
         The per-candidate scores are stored in ``season_scores_``.
         """
-        if search not in ("candidates", "stepwise"):
-            raise ValueError(f"search must be 'candidates' or 'stepwise', got {search!r}")
         y = np.asarray(history, dtype=np.float64).ravel()
         T = len(y)
         H = max(1, int(horizon))
@@ -435,33 +420,6 @@ class ConformalSeasonalPool:
         for c in usable:
             self.season_scores_[c] = score(c)
         best = min(usable, key=lambda c: (self.season_scores_[c], c))
-        if search == "stepwise":
-            ends = {best}
-            for start in usable:
-                if start <= 1:
-                    continue                    # 1 has no period to move around
-                cur = start
-                for _ in range(max_steps):
-                    near = {cur - 1, cur + 1, 2 * cur}
-                    if cur % 2 == 0:
-                        near.add(cur // 2)
-                    near = [c for c in sorted(near) if 2 <= c <= first // 2]
-                    for c in near:
-                        if c not in self.season_scores_:
-                            self.season_scores_[c] = score(c)
-                    if not near:
-                        break
-                    nb = min(near, key=lambda c: (self.season_scores_[c], c))
-                    if self.season_scores_[nb] < self.season_scores_[cur] * (1.0 - min_gain):
-                        cur = nb
-                    else:
-                        break
-                ends.add(cur)
-            # a period found by the search replaces the best listed candidate only
-            # if it beats it by the same margin
-            top = min(ends, key=lambda c: (self.season_scores_[c], c))
-            if top != best and self.season_scores_[top] < self.season_scores_[best] * (1.0 - min_gain):
-                best = top
         return best
 
     # ----------------------------------------------------------- shared math

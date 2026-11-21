@@ -5,6 +5,47 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-11-21
+
+### Added
+
+- **`seasonal_period="auto"`: the seasonal period is chosen on the history.** Opt-in;
+  an integer period behaves exactly as before (bit-identical, tested).
+
+  ```python
+  csp.fit(history, "auto", freq="5min")                 # tries none, hour, day, week
+  csp.fit(history, "auto", freq="H", candidates=[12])   # adds a period of your own
+  csp.fit(history, "auto", candidates=[1, 60, 1440])    # your own list only
+  csp.fit(history, "auto", freq="H", horizon=24)        # chosen for a 24-step forecast
+  ```
+
+  By default the periods tried are the natural cycles of the sampling frequency
+  (`seasonal_candidates(freq)`; 1 = no season is always among them). Each is scored by
+  weighted interval score on the last fifth of the history (at most 1,000 points and
+  200 forecast origins) at the given horizon; the lowest wins, ties go to the shorter
+  period. Only the history is used. Scores are kept in `season_scores_`. The choice
+  uses a private fixed seed and does not change the model's random draws.
+
+  Why: with `m > 1` every draw is built from values one or more seasons back and the
+  last observed value is not used. A long declared period (1440 for minute data) is
+  therefore only right when the series repeats closely from season to season.
+
+  Where it helps and where it does not (measured 20–21 Nov 2026):
+
+  - *One step ahead, long history, high-frequency data* (190 series, 5,000 points of
+    history): median weighted interval score falls by 58% on 1-minute, 65% on 5-minute
+    and 49% on series with periods 7 to 168; coverage at 95% goes from 0.88 / 0.90 /
+    0.93 to 0.94 / 0.95 / 0.93.
+  - *The CSP benchmark's Laplace subset* (2,534 windows, 228 datasets, histories cut to
+    400–720 points, horizons 4 to 168): no gain. Against the declared period it wins
+    CRPS on 50 datasets and loses on 45 (133 equal, p = 0.29), and calibration is
+    slightly worse (mean coverage 0.894 against 0.898). With so little history the
+    validation tail is 80 to 144 points and the choice is noisy. Keep the declared
+    period in that setting.
+
+- `seasonal_candidates(freq)`: the default candidate periods for a frequency string.
+- `CSPModel(season_length="auto", freq="H")` and `season_candidates=[...]`.
+
 ## [0.2.1] — 2026-11-20
 
 ### Fixed

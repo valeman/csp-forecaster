@@ -105,8 +105,6 @@ def test_errors():
         ConformalSeasonalPool().fit(y, "auto")
     with pytest.raises(ValueError, match="unknown frequency"):
         ConformalSeasonalPool().fit(y, "auto", freq="fortnight")
-    with pytest.raises(ValueError, match="search"):
-        ConformalSeasonalPool().fit(y, "auto", freq="H", search="grid")
     with pytest.raises(ValueError, match="auto"):
         ConformalSeasonalPool().fit(y, "weekly", candidates=[1])
     with pytest.raises(ValueError, match="season_candidates"):
@@ -138,15 +136,6 @@ def test_own_candidates_are_added_to_the_frequency_defaults():
     csp = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H", candidates=[30])
     assert set(csp.season_scores_) == {1, 24, 30, 168}
     assert csp.seasonal_period == 30
-
-
-def test_stepwise_search_finds_a_period_next_to_the_default():
-    # true cycle 25, frequency says 24: the stepwise search moves one up
-    y = _seasonal(m=25)
-    plain = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H")
-    step = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H", search="stepwise")
-    assert step.seasonal_period == 25
-    assert step.season_scores_[25] < plain.season_scores_[plain.seasonal_period]
 
 
 def test_nixtla_adapter_auto_from_freq():

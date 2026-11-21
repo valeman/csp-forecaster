@@ -182,6 +182,43 @@ undefined. The legacy path reproduces the original code (draws a half-budget
 conformal sample and tiles it up to `n_samples`); the fast path does the cleaner
 thing and draws the full budget from the conformal component.
 
+## Choosing the seasonal period automatically (v0.2.2, opt-in)
+
+```python
+csp.fit(history, "auto", freq="5min")                 # tries none, hour, day, week
+csp.fit(history, "auto", freq="H", candidates=[12])   # adds a period of your own
+csp.fit(history, "auto", candidates=[1, 60, 1440])    # your own list only
+csp.fit(history, "auto", freq="H", horizon=24)        # chosen for a 24-step forecast
+csp.seasonal_period, csp.season_scores_               # what was chosen, and the scores
+```
+
+With `seasonal_period="auto"` the period is chosen on the history itself. By default the
+candidates are the natural cycles of the sampling frequency, and 1 (no season) is always
+one of them:
+
+| `freq` | periods tried |
+|---|---|
+| `"S"`, `"10S"` | 1, minute, hour, day (60, 3600, 86400; 6, 360, 8640) |
+| `"min"`, `"5min"`, `"15min"`, `"30min"` | 1, hour, day, week (60, 1440, 10080; 12, 288, 2016; …) |
+| `"H"` | 1, 24, 168 |
+| `"D"` / `"B"` | 1, 7 / 1, 5 |
+| `"W"` / `"M"` / `"Q"` / `"Y"` | 1, 52 / 1, 12 / 1, 4 / 1 |
+
+Each candidate is scored by weighted interval score on the last fifth of the history at the
+forecast `horizon`; the lowest wins and ties go to the shorter period. Candidates longer
+than half the data are skipped. Only the history is used. An integer period behaves exactly
+as before.
+
+**When to use it.** A declared period is only right when the series repeats closely from
+one season to the next, because with `m > 1` the last observed value is not used. On
+one-step-ahead forecasts of minute and 5-minute data with a long history, `"auto"` cut the
+median interval score by about 60% and brought 95% coverage from 0.88–0.90 to 0.94–0.95.
+On short histories (a few hundred points) and multi-step horizons it gave no gain on the
+CSP benchmark and slightly worse calibration: keep the declared period there. Figures are
+in `CHANGELOG.md`.
+
+In the statsforecast wrapper: `CSPModel(season_length="auto", freq="H")`.
+
 ## Options — what each one does, and when to use it
 
 `ConformalSeasonalPool` exposes five behavioural knobs.
