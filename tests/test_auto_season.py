@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from csp_forecaster import ConformalSeasonalPool, CSPModel   # noqa: E402
+from csp_forecaster import ConformalSeasonalPool, CSPModel, seasonal_candidates   # noqa: E402
 
 
 def _randomwalk(seed=0, n=3000):
@@ -101,12 +101,58 @@ def test_candidates_longer_than_half_the_data_are_skipped():
 
 def test_errors():
     y = _seasonal()
-    with pytest.raises(ValueError, match="candidates"):
+    with pytest.raises(ValueError, match="freq"):
         ConformalSeasonalPool().fit(y, "auto")
+    with pytest.raises(ValueError, match="unknown frequency"):
+        ConformalSeasonalPool().fit(y, "auto", freq="fortnight")
+    with pytest.raises(ValueError, match="search"):
+        ConformalSeasonalPool().fit(y, "auto", freq="H", search="grid")
     with pytest.raises(ValueError, match="auto"):
         ConformalSeasonalPool().fit(y, "weekly", candidates=[1])
     with pytest.raises(ValueError, match="season_candidates"):
         CSPModel(season_length="auto")
+
+
+@pytest.mark.parametrize("freq,expected", [
+    ("min", [1, 60, 1440, 10080]), ("T", [1, 60, 1440, 10080]), ("5min", [1, 12, 288, 2016]),
+    ("15T", [1, 4, 96, 672]), ("30min", [1, 2, 48, 336]), ("10S", [1, 6, 360, 8640]),
+    ("H", [1, 24, 168]), ("h", [1, 24, 168]), ("2H", [1, 12, 84]),
+    ("D", [1, 7]), ("B", [1, 5]), ("W", [1, 52]), ("W-SUN", [1, 52]),
+    ("M", [1, 12]), ("MS", [1, 12]), ("ME", [1, 12]), ("Q", [1, 4]), ("Q-DEC", [1, 4]),
+    ("Y", [1]), ("A", [1]), ("YS", [1]),
+])
+def test_default_candidates_by_frequency(freq, expected):
+    assert seasonal_candidates(freq) == expected
+
+
+def test_auto_from_frequency_alone():
+    # hourly data with a daily cycle: the default candidates are none, day, week
+    y = _seasonal()
+    csp = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H")
+    assert csp.seasonal_period == 24
+    assert set(csp.season_scores_) == {1, 24, 168}
+
+
+def test_own_candidates_are_added_to_the_frequency_defaults():
+    y = _seasonal(m=30)
+    csp = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H", candidates=[30])
+    assert set(csp.season_scores_) == {1, 24, 30, 168}
+    assert csp.seasonal_period == 30
+
+
+def test_stepwise_search_finds_a_period_next_to_the_default():
+    # true cycle 25, frequency says 24: the stepwise search moves one up
+    y = _seasonal(m=25)
+    plain = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H")
+    step = ConformalSeasonalPool(random_state=1).fit(y, "auto", freq="H", search="stepwise")
+    assert step.seasonal_period == 25
+    assert step.season_scores_[25] < plain.season_scores_[plain.seasonal_period]
+
+
+def test_nixtla_adapter_auto_from_freq():
+    m = CSPModel(season_length="auto", freq="H", random_state=1)
+    assert m.new().freq == "H"
+    assert m.fit(_seasonal()).model_.seasonal_period == 24
 
 
 def test_nixtla_adapter_auto():

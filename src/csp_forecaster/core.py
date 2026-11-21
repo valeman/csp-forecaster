@@ -115,6 +115,66 @@ else:
         return np.quantile(samples, oriented_taus, axis=1)
 
 
+# ---------------------------------------------------------------------------
+# Default seasonal-period candidates by sampling frequency
+# ---------------------------------------------------------------------------
+_FREQ_SECONDS = {
+    "s": 1, "sec": 1, "second": 1,
+    "t": 60, "min": 60, "minute": 60,
+    "h": 3600, "hour": 3600,
+}
+_FREQ_CALENDAR = {
+    "d": (7,), "day": (7,),
+    "b": (5,),
+    "w": (52,), "week": (52,),
+    "m": (12,), "ms": (12,), "me": (12,), "month": (12,),
+    "q": (4,), "qs": (4,), "qe": (4,), "quarter": (4,),
+    "y": (), "ys": (), "ye": (), "a": (), "as": (), "year": (),
+}
+
+
+def seasonal_candidates(freq: str) -> List[int]:
+    """Default seasonal periods to try for a sampling frequency.
+
+    ``freq`` is a pandas-style frequency string (``"min"``, ``"5min"``, ``"15T"``,
+    ``"10S"``, ``"H"``, ``"D"``, ``"B"``, ``"W"``, ``"M"``, ``"Q"``, ``"Y"``; an anchor
+    such as ``"W-SUN"`` or ``"Q-DEC"`` is ignored). The list always starts with 1
+    ("no season") and then holds the natural cycles of that frequency:
+
+    ===================  =============================================
+    seconds              minute, hour, day
+    minutes              hour, day, week
+    hours                day, week
+    daily / business     week (7 / 5)
+    weekly               year (52)
+    monthly              year (12)
+    quarterly            year (4)
+    yearly               none
+    ===================  =============================================
+
+    A cycle is listed only when it is a whole number of steps of at least 2
+    (``"10S"`` -> 6, 360, 8640; ``"2H"`` -> 12, 84). These are defaults, not a
+    restriction: pass ``candidates=`` to ``fit`` to add periods of your own.
+    """
+    import re
+    f = str(freq).strip()
+    mt = re.fullmatch(r"(\d*)\s*([A-Za-z]+)(?:-[A-Za-z]+)?", f)
+    if not mt:
+        raise ValueError(f"cannot read frequency {freq!r}")
+    k = int(mt.group(1) or 1)
+    unit = mt.group(2)
+    key = unit.lower()                          # "M"/"m" is month; minutes are "min" or "T"
+    if key in _FREQ_SECONDS:
+        step = _FREQ_SECONDS[key] * k
+        cycles = (60, 3600, 86400) if step < 60 else (3600, 86400, 604800)
+        out = [c // step for c in cycles if c % step == 0 and c // step >= 2]
+    elif key in _FREQ_CALENDAR:
+        out = [c // k for c in _FREQ_CALENDAR[key] if c % k == 0 and c // k >= 2]
+    else:
+        raise ValueError(f"unknown frequency {freq!r}; pass candidates=[...] instead")
+    return [1] + sorted(set(out))
+
+
 @dataclass
 class PredictionResult:
     """Predictive distribution for an H-step forecast.
@@ -247,13 +307,19 @@ class ConformalSeasonalPool:
         seasonal_period: "int | str" = 1,
         candidates: Optional[Sequence[int]] = None,
         horizon: int = 1,
+        freq: Optional[str] = None,
+        search: str = "candidates",
     ) -> "ConformalSeasonalPool":
         """Store the history and the seasonal period.
 
-        ``seasonal_period="auto"`` chooses the period among ``candidates`` on the
-        history itself (see :meth:`select_seasonal_period`); ``horizon`` is the
-        forecast horizon the choice is made for. With an integer period the
-        behaviour is unchanged and ``candidates`` / ``horizon`` are ignored.
+        ``seasonal_period="auto"`` chooses the period on the history itself (see
+        :meth:`select_seasonal_period`). The periods tried are, by default, the
+        natural cycles of the sampling frequency ``freq`` (see
+        :func:`seasonal_candidates`: ``freq="5min"`` tries none, the hour, the day
+        and the week). ``candidates`` adds periods of your own; given without
+        ``freq`` it is the whole list. ``horizon`` is the forecast horizon the
+        choice is made for. With an integer period the behaviour is unchanged and
+        ``candidates`` / ``horizon`` / ``freq`` are ignored.
         """
         self.history = np.asarray(history, dtype=np.float64).ravel()
         self.season_scores_ = {}
@@ -261,10 +327,14 @@ class ConformalSeasonalPool:
             if seasonal_period != "auto":
                 raise ValueError(
                     f"seasonal_period must be an integer or 'auto', got {seasonal_period!r}")
-            if candidates is None:
+            if candidates is None and freq is None:
                 raise ValueError(
-                    "seasonal_period='auto' needs candidates, e.g. candidates=[1, 60, 1440]")
-            seasonal_period = self.select_seasonal_period(self.history, candidates, horizon)
+                    "seasonal_period='auto' needs the sampling frequency (freq='5min') "
+                    "or candidates=[1, 60, 1440]")
+            candidates = [*(seasonal_candidates(freq) if freq is not None else []),
+                          *(candidates or [])]
+            seasonal_period = self.select_seasonal_period(
+                self.history, candidates, horizon, search=search)
         self.seasonal_period = max(1, int(seasonal_period))
         return self
 
@@ -281,6 +351,9 @@ class ConformalSeasonalPool:
         max_val: int = 1000,
         max_origins: int = 200,
         n_samples: int = 200,
+        search: str = "candidates",
+        max_steps: int = 10,
+        min_gain: float = 0.02,
     ) -> int:
         """Choose the seasonal period among ``candidates`` by out-of-sample score.
 
@@ -308,8 +381,18 @@ class ConformalSeasonalPool:
         skipped. If the history is too short to validate (fewer than 5 origins),
         the longest candidate with at least three full cycles is returned, else 1.
 
+        ``search="stepwise"`` (experimental) goes on from every candidate above 1
+        in the manner of a stepwise order search: it scores the neighbouring
+        periods (``m - 1``, ``m + 1``, ``m / 2`` when even, ``2 m``), moves to the
+        best of them if it beats the current score by more than ``min_gain`` (2%),
+        and repeats until nothing improves or ``max_steps`` moves were made. A
+        period found this way is kept only if it beats the best listed candidate
+        by the same margin.
+
         The per-candidate scores are stored in ``season_scores_``.
         """
+        if search not in ("candidates", "stepwise"):
+            raise ValueError(f"search must be 'candidates' or 'stepwise', got {search!r}")
         y = np.asarray(history, dtype=np.float64).ravel()
         T = len(y)
         H = max(1, int(horizon))
@@ -328,7 +411,8 @@ class ConformalSeasonalPool:
             return max(ok) if ok else 1
         alphas = self._SELECT_ALPHAS
         levels = sorted({0.5, *[a / 2 for a in alphas], *[1 - a / 2 for a in alphas]})
-        for c in usable:
+
+        def score(c: int) -> float:
             trial = ConformalSeasonalPool(
                 pool_weight=self.pool_weight, exp_lambda=self.exp_lambda,
                 cal_fraction=self.cal_fraction, adaptive=self.adaptive, mode="fast",
@@ -346,8 +430,39 @@ class ConformalSeasonalPool:
                     lo, hi = q[a / 2], q[1 - a / 2]
                     s = s + a / 2 * (hi - lo) + np.maximum(lo - actual, 0) + np.maximum(actual - hi, 0)
                 total += float(np.mean(s)) / (len(alphas) + 0.5)
-            self.season_scores_[c] = total / len(origins)
-        return min(usable, key=lambda c: (self.season_scores_[c], c))
+            return total / len(origins)
+
+        for c in usable:
+            self.season_scores_[c] = score(c)
+        best = min(usable, key=lambda c: (self.season_scores_[c], c))
+        if search == "stepwise":
+            ends = {best}
+            for start in usable:
+                if start <= 1:
+                    continue                    # 1 has no period to move around
+                cur = start
+                for _ in range(max_steps):
+                    near = {cur - 1, cur + 1, 2 * cur}
+                    if cur % 2 == 0:
+                        near.add(cur // 2)
+                    near = [c for c in sorted(near) if 2 <= c <= first // 2]
+                    for c in near:
+                        if c not in self.season_scores_:
+                            self.season_scores_[c] = score(c)
+                    if not near:
+                        break
+                    nb = min(near, key=lambda c: (self.season_scores_[c], c))
+                    if self.season_scores_[nb] < self.season_scores_[cur] * (1.0 - min_gain):
+                        cur = nb
+                    else:
+                        break
+                ends.add(cur)
+            # a period found by the search replaces the best listed candidate only
+            # if it beats it by the same margin
+            top = min(ends, key=lambda c: (self.season_scores_[c], c))
+            if top != best and self.season_scores_[top] < self.season_scores_[best] * (1.0 - min_gain):
+                best = top
+        return best
 
     # ----------------------------------------------------------- shared math
     def _effective_pool_weight(self) -> float:
