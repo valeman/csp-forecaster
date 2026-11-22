@@ -260,6 +260,13 @@ class ConformalSeasonalPool:
     random_state : int | np.random.Generator | None
         Seed/generator for ``mode="fast"``. Ignored by ``mode="legacy"`` (which
         uses the global NumPy RNG for bit-exact reproduction of the paper).
+    short_history_guard : bool, default True
+        When the history is shorter than one seasonal period, forecast with no
+        seasonal period: a season that has not been observed once offers no
+        earlier value at the same phase to pool or to anchor on. The period
+        passed to ``fit`` is kept in ``seasonal_period_given_`` and
+        ``short_history_guard_active_`` says whether the guard fired. Not applied
+        in ``mode="legacy"``. ``False`` restores the behaviour before 0.2.3.
     """
 
     MIN_RESIDUALS: int = 8
@@ -276,6 +283,7 @@ class ConformalSeasonalPool:
         orientation: bool = False,
         decay_unit: str = "step",
         random_state: "int | np.random.Generator | None" = None,
+        short_history_guard: bool = True,
     ):
         if mode not in ("fast", "legacy"):
             raise ValueError(f"mode must be 'fast' or 'legacy', got {mode!r}")
@@ -291,8 +299,11 @@ class ConformalSeasonalPool:
         self.residual_mode = residual_mode
         self.orientation = bool(orientation)
         self.decay_unit = decay_unit
+        self.short_history_guard = bool(short_history_guard)
         self.history: Optional[np.ndarray] = None
         self.seasonal_period: int = 1
+        self.seasonal_period_given_: int = 1
+        self.short_history_guard_active_: bool = False
         self.season_scores_: Dict[int, float] = {}
         self.name = "CSP-Adaptive" if adaptive else "CSP-Fixed"
         if isinstance(random_state, np.random.Generator):
@@ -317,8 +328,11 @@ class ConformalSeasonalPool:
         :func:`seasonal_candidates`: ``freq="5min"`` tries none, the hour, the day
         and the week). ``candidates`` adds periods of your own; given without
         ``freq`` it is the whole list. ``horizon`` is the forecast horizon the
-        choice is made for. With an integer period the behaviour is unchanged and
-        ``candidates`` / ``horizon`` / ``freq`` are ignored.
+        choice is made for. With an integer period ``candidates`` / ``horizon`` /
+        ``freq`` are ignored.
+
+        If the history is shorter than one seasonal period, no seasonal period is
+        used (``short_history_guard``, on by default since 0.2.3).
         """
         self.history = np.asarray(history, dtype=np.float64).ravel()
         self.season_scores_ = {}
@@ -334,6 +348,19 @@ class ConformalSeasonalPool:
                           *(candidates or [])]
             seasonal_period = self.select_seasonal_period(self.history, candidates, horizon)
         self.seasonal_period = max(1, int(seasonal_period))
+        self.seasonal_period_given_ = self.seasonal_period
+        # A season that has not been observed once cannot be used: with fewer points
+        # than one seasonal period there is no earlier value at the same phase to pool
+        # or to anchor on, and the interval width would stay flat across steps.
+        # (Not applied in mode="legacy", which reproduces the paper bit for bit.)
+        self.short_history_guard_active_ = bool(
+            self.short_history_guard
+            and self.mode != "legacy"
+            and self.seasonal_period > 1
+            and self.history.shape[0] < self.seasonal_period
+        )
+        if self.short_history_guard_active_:
+            self.seasonal_period = 1
         return self
 
     # ------------------------------------------------------ season selection

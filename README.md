@@ -182,6 +182,15 @@ undefined. The legacy path reproduces the original code (draws a half-budget
 conformal sample and tiles it up to `n_samples`); the fast path does the cleaner
 thing and draws the full budget from the conformal component.
 
+## Histories shorter than one season (v0.2.3)
+
+If the history is shorter than the seasonal period you pass, CSP forecasts with no
+seasonal period: `ConformalSeasonalPool().fit(history_of_700_points, 1440)` behaves like
+`fit(history, 1)`. The period you gave is kept in `seasonal_period_given_`, and
+`short_history_guard_active_` tells you the guard fired. Pass
+`short_history_guard=False` for the behaviour before 0.2.3. `mode="legacy"` is not
+affected.
+
 ## Choosing the seasonal period automatically (v0.2.2, opt-in)
 
 ```python

@@ -63,6 +63,7 @@ class CSPModel:
         season_candidates: "Optional[List[int]]" = None,
         selection_horizon: int = 1,
         freq: "Optional[str]" = None,
+        short_history_guard: bool = True,
     ):
         # season_length="auto": the period is chosen per series
         # (ConformalSeasonalPool.select_seasonal_period) among the natural cycles
@@ -72,6 +73,7 @@ class CSPModel:
             raise ValueError(
                 "season_length='auto' needs freq (e.g. 'H') or season_candidates, e.g. [1, 24, 168]")
         self.freq = freq
+        self.short_history_guard = bool(short_history_guard)
         self.season_candidates = list(season_candidates) if season_candidates else None
         self.selection_horizon = selection_horizon
         self.season_length = season_length
@@ -106,6 +108,7 @@ class CSPModel:
             season_candidates=self.season_candidates,
             selection_horizon=self.selection_horizon,
             freq=self.freq,
+            short_history_guard=self.short_history_guard,
         )
 
     def __repr__(self) -> str:
@@ -123,6 +126,7 @@ class CSPModel:
             orientation=self.orientation,
             decay_unit=self.decay_unit,
             random_state=self.random_state,
+            short_history_guard=self.short_history_guard,
         )
 
     def _result_dict(self, samples: np.ndarray, level: Optional[List[int]]) -> Dict[str, np.ndarray]:

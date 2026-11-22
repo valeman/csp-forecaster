@@ -5,6 +5,38 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-11-22
+
+### Changed
+
+- **Short-history guard, on by default.** `fit()` uses no seasonal period when the
+  history is shorter than one seasonal period (`short_history_guard=True`). A season
+  that has not been observed once offers no earlier value at the same phase to pool
+  or to anchor on; CSP nevertheless centred on such phases and kept the interval
+  width flat across steps. The period passed to `fit` is kept in
+  `seasonal_period_given_`; `short_history_guard_active_` says whether the guard
+  fired. Not applied in `mode="legacy"`. `short_history_guard=False` restores the
+  previous behaviour. `CSPModel` takes the same argument.
+
+  Whenever the history holds at least one full period, forecasts are identical to
+  0.2.2 bit for bit (tested).
+
+  Measured, 95% intervals:
+
+  - *CSP benchmark, 24,502 windows:* the guard fires on 3 windows (monthly series
+    with 10 points). Two get better (interval score 948 to 706), one gets worse
+    (814 to 1,343). Everything else is unchanged.
+  - *Benchmark series with a declared period of 48 or more, history cut to half a
+    period* (1,346 windows, 43 datasets): interval score 24% lower and CRPS 23%
+    lower (geometric mean over datasets); better on 28 datasets and worse on 15
+    for the interval score, 33 and 10 for CRPS. The gain is largest on 5-minute
+    data (median ratio 0.42) and absent on half-hourly and 15-minute data (about
+    1.0). Coverage rises from 0.38 to 0.50: half a period of history remains a
+    hard case with or without the guard.
+  - *One-minute data with a daily period and 720 to 816 points of history* (three
+    datasets, 18 windows each, measured 15 Nov 2026): interval score 191 to 29,
+    248 to 11 and 141 to 11; coverage 39%, 36% and 73% to 92%, 88% and 98%.
+
 ## [0.2.2] — 2026-11-21
 
 ### Added
