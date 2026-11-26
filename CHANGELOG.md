@@ -5,6 +5,47 @@ All notable changes to `csp-forecaster` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-11-26
+
+### Added
+
+- **`CSPAuto`: CSP that chooses its own set-up on the history.** Two things are chosen
+  together, by weighted interval score on the last fifth of the history (at most 1,000
+  points), one step ahead by default:
+
+  - *the target*: the levels (plain CSP), or the one-step changes, anchored on the last
+    observed value. With changes, CSP forecasts `d_t = y_t - y_{t-1}` and every sample path
+    is the last value plus the cumulative sampled changes;
+  - *the seasonal period*: none, the declared period, and the hour for sub-hourly data
+    declared with a daily period (`auto_candidates`: 288 tries 1, 12, 288; 1440 tries 1, 60,
+    1440). With `acf_peak=True` the highest autocorrelation peak of the history is tried too
+    (lag 2 or more, at least 10 cycles, autocorrelation at least 0.3; `acf_peak()`): the short
+    cycles of fast machine and sensor data.
+
+  ```python
+  from csp_forecaster import CSPAuto
+  model = CSPAuto(random_state=0).fit(history, seasonal_period=288)
+  r = model.predict(H=1, alpha=0.05)
+  model.choice_          # target, period, declared period, all scores
+  ```
+
+  Nothing in `ConformalSeasonalPool` changes: every existing call gives the same output.
+
+  This is the method the large conformal forecasting benchmark runs as `CSP_auto` (and, with
+  `acf_peak=True`, `CSP_auto_acf`). Measured there, one step ahead, weighted interval score
+  per dataset against CSP with the declared period (geometric mean over about 2,900
+  datasets): 0.47, better on 1,964 datasets and worse on 158; datasets with 95% coverage
+  under 0.90 fall from 26% to 10%. The gain is largest on 1-minute and 5-minute data and
+  absent on 10-second and yearly data. The autocorrelation-peak period adds a further 7% on a
+  fresh sample of 115 series (0.928, 95% interval 0.858 to 0.980), almost all of it on
+  10-second and 1-minute data.
+
+  Checked against the benchmark's own implementation on 40 real series (10-second to daily):
+  the same target and period on 90% of them, weighted interval score 0.989 of the
+  benchmark's (median 0.997); with `acf_peak=True`, 83% and 1.002 on 24 series. The
+  differences come from scoring 200 evenly spaced origins rather than every point of the tail
+  (`max_origins=None` scores every point) and from random draws.
+
 ## [0.2.3] — 2026-11-22
 
 ### Changed
