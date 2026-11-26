@@ -7,6 +7,7 @@ from .core import (
     seasonal_candidates,
 )
 from .nixtla import CSPModel
+from .auto import CSPAuto, auto_candidates, acf_peak
 
 __all__ = [
     "ConformalSeasonalPool",
@@ -14,5 +15,8 @@ __all__ = [
     "DEFAULT_QUANTILE_LEVELS",
     "CSPModel",
     "seasonal_candidates",
+    "CSPAuto",
+    "auto_candidates",
+    "acf_peak",
 ]
-__version__ = "0.2.3"
+__version__ = "0.3.0"

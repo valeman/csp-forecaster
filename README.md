@@ -191,6 +191,27 @@ seasonal period: `ConformalSeasonalPool().fit(history_of_700_points, 1440)` beha
 `short_history_guard=False` for the behaviour before 0.2.3. `mode="legacy"` is not
 affected.
 
+## Choosing the target and the period: `CSPAuto` (v0.3.0)
+
+```python
+from csp_forecaster import CSPAuto
+model = CSPAuto(random_state=0).fit(history, seasonal_period=288)   # the declared period
+r = model.predict(H=1, alpha=0.05)
+model.choice_      # {'target': 'change', 'seasonal_period': 1, 'scores': {...}, ...}
+```
+
+`CSPAuto` chooses, on the history, both the **target** (the levels, or the one-step changes
+anchored on the last value) and the **seasonal period** (none, the declared one, and the hour
+for sub-hourly data declared with a daily period; with `acf_peak=True` also the strongest
+short cycle found by autocorrelation). The choice is scored by weighted interval score on the
+last fifth of the history. With a long declared period, plain CSP anchors every forecast on
+the value one season ago; on data that wanders this is the main source of wide or misplaced
+intervals, and the change target fixes it. In the large benchmark this halves the weighted
+interval score of CSP with the declared period (see `CHANGELOG.md`).
+
+Options: `targets=("level",)` chooses the period only; `max_origins=None` scores every point of
+the tail (slower); the other arguments are those of `ConformalSeasonalPool`.
+
 ## Choosing the seasonal period automatically (v0.2.2, opt-in)
 
 ```python
